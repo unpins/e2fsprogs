@@ -8,9 +8,20 @@
 
   inputs.unpins-lib.url = "github:unpins/nix-lib";
 
+  # Multi-binary upstream (mke2fs/tune2fs/dumpe2fs/e2fsck + their argv[0]-
+  # dispatch siblings like mkfs.ext2/3/4, e2label, fsck.ext2/3/4) is post-
+  # linked into a single multicall ELF/Mach-O via the recipe in
+  # ./multicall.nix. `lib.withAliases` then embeds the applet names as an
+  # UNPIN_META block so unpin's installer can recreate the argv[0] shims.
+  # See ./multicall.nix for the link mechanics (ELF objcopy --redefine-sym
+  # vs Mach-O ld -r -exported_symbols_list, libgcc closure on i686, …).
   outputs = { self, unpins-lib }:
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
       name = "e2fsprogs";
+      build = pkgs:
+        import ./multicall.nix {
+          lib = pkgs.lib // unpins-lib.lib;
+        } pkgs;
     };
 }
