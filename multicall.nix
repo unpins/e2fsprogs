@@ -179,98 +179,32 @@ let
   multicallGroupClose = if isTargetDarwin then "" else "-Wl,--end-group";
   multicallLibgcc = if isTargetDarwin then "" else "-lgcc";
 
-  # Mach-O branch: one `ld -r` pass with `-exported_symbols_list` that
-  # contains only `_main` (Mach-O's `_`-prefixed C symbol). ld64 demotes
-  # every other defined global to N_PEXT (private extern), achieving in
-  # one step what `--localize-symbols` would do on ELF. Then a final
-  # `--redefine-sym _main=_<tool>_main` rewrites the dispatcher target;
-  # TEXT-symbol renames are the one llvm-objcopy operation that DOES
-  # work on Mach-O, so this is safe.
-  combineMacho = ''
-    __e2fs_combine() {
-      local tool=$1; shift
-      echo "_main" > multicall/$tool.export.txt
-      $LD -r -exported_symbols_list multicall/$tool.export.txt \
-        -o multicall/$tool.combined.o "$@"
-      $OBJCOPY --redefine-sym _main=_''${tool}_main multicall/$tool.combined.o
-    }
-  '';
-
-  # ELF branch: ld -r, then a single `objcopy` invocation that renames
-  # every defined global. `main` → `<tool>_main` is the dispatcher
-  # target; every other global `foo` → `<tool>__foo` is privately scoped
-  # across the final link (no collision when misc/util.o is pulled into
-  # both mke2fs.combined.o and tune2fs.combined.o). Compiler-emitted
-  # COMDAT thunks (`__x86.get_pc_thunk.*`, i686 PIC helpers) are left
-  # untouched so libgcc / COMDAT dedup still resolve them cleanly.
-  combineElf = ''
-    __e2fs_combine() {
-      local tool=$1; shift
-      $LD -r -o multicall/$tool.combined.o "$@"
-      local -a redefs=()
-      while read -r old new; do
-        [ -n "$old" ] || continue
-        redefs+=(--redefine-sym "$old=$new")
-      done < <(
-        $NM --defined-only -g multicall/$tool.combined.o \
-          | awk -v t="$tool" \
-              '$2 ~ /^[TBDR]$/ && $3 !~ /^__x86\.get_pc_thunk\./ {
-                  old = $3
-                  if (old == "main") new = t "_main"
-                  else                new = t "__" old
-                  print old, new
-              }'
-      )
-      if [ ''${#redefs[@]} -gt 0 ]; then
-        $OBJCOPY "''${redefs[@]}" multicall/$tool.combined.o
-      fi
-    }
-  '';
-
-  combineFunc = if isTargetDarwin then combineMacho else combineElf;
-
   # Custom Makefile fragment that reuses upstream's misc/Makefile variables
   # ($(LIBBLKID), $(LIBUUID), $(LIBARCHIVE), $(LIBS), $(SYSLIBS), $(ALL_LDFLAGS)
   # …) to do the final link. Written via pkgs.writeText so neither Nix
   # interpolation nor bash heredoc indentation/escaping mangles the recipe
   # tabs. `top_builddir` is one level up from misc/, matching upstream's
   # misc/Makefile.in.
+  # X+Z final link: feed dispatcher.o + every tool's renamed .o files
+  # directly into gcc. All .o are bitcode (no per-tool materialization),
+  # so lto-plugin runs the full LTO across tools + lib/{support,ext2fs,
+  # e2p,et} + musl.
   multicallMk = pkgs.writeText "unpin-multicall.mk" ''
     MULTI_OUT ?= $(top_builddir)/multicall/e2fsprogs
-    MULTI_OBJS = \
-        $(top_builddir)/multicall/dispatcher.o \
-        $(top_builddir)/multicall/mke2fs.combined.o \
-        $(top_builddir)/multicall/tune2fs.combined.o \
-        $(top_builddir)/multicall/dumpe2fs.combined.o \
-        $(top_builddir)/multicall/e2fsck.combined.o
 
     .PHONY: multicall-link
     multicall-link: $(MULTI_OUT)
 
-    # `--start-group ... $(MULTI_LIBGCC) --end-group` is the key difference
-    # vs upstream's mke2fs/e2fsck per-tool recipes. Two reasons (GNU/Linux):
-    #
-    # (1) The bigger combined link drags in additional libc.a members
-    #     (musl's __secs_to_tm.lo, __stdio_exit.lo, ...) whose PIC-mode
-    #     references to `__x86.get_pc_thunk.*` are only resolvable from
-    #     libgcc — and the cc-driver's implicit `-lgcc -lc -lgcc` tail is
-    #     scanned ONCE by the linker. Without the explicit `-lgcc` inside
-    #     the group, libc gets pulled in (introducing fresh
-    #     `__x86.get_pc_thunk.*` undefs) after the implicit libgcc has
-    #     already been scanned, leaving those undefs unresolved.
-    #
-    # (2) `ld -r`-combined objects (lib/support/profile.o etc.) carry
-    #     leftover `__x86.get_pc_thunk.*` references too — putting libgcc
-    #     inside the group picks those up during the rescan pass.
-    #
-    # Darwin (ld64): MULTI_LIBGCC is empty (clang/compiler-rt has no
-    # `libgcc.a`; `-lgcc` would error with "library not found"). The
-    # thunk problem is i686-specific (RIP-relative on x86_64, different
-    # ISAs use different/no thunks), so skipping `-lgcc` on Darwin also
-    # skips the problem class. `--start-group`/`--end-group` themselves
-    # are no-ops on ld64.
-    $(MULTI_OUT): $(MULTI_OBJS) $(DEPLIBS) $(LIBE2P) $(DEPLIBBLKID) $(DEPLIBUUID) $(LIBEXT2FS) $(LIBSUPPORT)
-    	$(CC) $(ALL_LDFLAGS) -o $@ $(MULTI_OBJS) \
+    # `--start-group ... $(MULTI_LIBGCC) --end-group` is the key
+    # difference vs upstream's per-tool recipes. The bigger combined
+    # link drags in additional libc.a members whose PIC-mode references
+    # to `__x86.get_pc_thunk.*` (i686 specific) need libgcc inside the
+    # group — the cc-driver's implicit `-lgcc -lc -lgcc` tail is scanned
+    # once. Darwin (ld64) doesn't accept the group directives and has
+    # no libgcc; MULTI_LIBGCC/MULTI_GROUP_* expand to empty there.
+    $(MULTI_OUT): $(top_builddir)/multicall/dispatcher.o $(MULTI_TOOL_OBJS) $(DEPLIBS) $(LIBE2P) $(DEPLIBBLKID) $(DEPLIBUUID) $(LIBEXT2FS) $(LIBSUPPORT)
+    	$(CC) $(ALL_LDFLAGS) -o $@ \
+    		$(top_builddir)/multicall/dispatcher.o $(MULTI_TOOL_OBJS) \
     		$(MULTI_GROUP_OPEN) \
     		$(LIBSUPPORT) $(LIBS) $(LIBBLKID) $(LIBUUID) \
     		$(LIBEXT2FS) $(LIBE2P) $(LIBINTL) \
@@ -282,17 +216,95 @@ let
   multicall = pkgs.pkgsStatic.e2fsprogs.overrideAttrs (old: {
     pname = "e2fsprogs-multi";
 
+    # nixpkgs splits e2fsprogs into 7 outputs (bin/dev/out/man/info/
+    # scripts/fuse2fs); collapse to one. The split-output postInstall
+    # does `mv $bin/bin/fuse2fs $fuse2fs/bin/fuse2fs` etc. expecting
+    # files our X+Z installPhase doesn't produce (we ship only the
+    # multicall, no fuse2fs / mk_cmds / e2scrub / …).
+    outputs = [ "out" ];
+    postInstall = "";
+
     postBuild = (old.postBuild or "") + ''
       mkdir -p multicall
       cat > multicall/dispatcher.c <<'DISPATCHER_EOF'
 ${dispatcherC}
 DISPATCHER_EOF
 
-      ${combineFunc}
+      # X+Z: rebuild every tool with renames at preprocessor time.
+      # mke2fs and tune2fs share `misc/util.o` at the same path (one
+      # physical file, two tool consumers) — so we use the same
+      # two-phase + per-tool-isolation trick as procps-ng:
+      #
+      #   A. Discovery: NM each tool's .o set (canonical first-pass
+      #      output of upstream's buildPhase) and emit
+      #      `multicall/<tool>.rename.h` with `#define <sym>
+      #      <tool>__<sym>` lines + `#define main <tool>_main`.
+      #   B. Per-tool rebuild + isolate: rm the tool's .o files,
+      #      re-run `make $objs` with `NIX_CFLAGS_COMPILE` augmented to
+      #      `-include` the per-tool rename header; then immediately
+      #      copy the freshly-recompiled .o files into
+      #      `multicall/<tool>/` so the next iteration's rebuild can
+      #      clobber the shared path without losing this tool's bits.
+      #
+      # Output is bitcode end-to-end — no ld -r, no objcopy
+      # --redefine-sym, no -flinker-output=nolto-rel. lto-plugin sees
+      # tools + lib/{support,ext2fs,e2p,et} + musl together at final
+      # link and inlines/DCEs across all of it. Drops Darwin's special
+      # `-exported_symbols_list + N_PEXT` ld64 trick because the
+      # preprocessor rename is platform-agnostic — Mach-O and ELF
+      # both consume already-renamed bitcode the same way.
+      _orig_NIX_CFLAGS_COMPILE=''${NIX_CFLAGS_COMPILE:-}
 
+      # Phase A: discovery (write rename headers from first-pass .o)
       ${lib.concatStringsSep "\n      " (lib.mapAttrsToList
-        (tool: objs:
-          "__e2fs_combine ${tool} ${lib.concatStringsSep " " objs}")
+        (tool: objs: ''
+          {
+            echo "/* multicall rename header: ${tool} */"
+            echo "#define main ${tool}_main"
+            # Filter to valid C identifiers: gcc LTO sometimes emits
+            # globals with dot-disambiguation suffixes that aren't legal
+            # cpp macro names.
+            $NM --defined-only -g ${lib.concatStringsSep " " objs} 2>/dev/null \
+              | awk -v t="${tool}" '
+                  $2 ~ /^[TBDRWVC]$/ \
+                    && $3 ~ /^[A-Za-z_][A-Za-z0-9_]*$/ \
+                    && $3 != "main" {
+                    if (!seen[$3]++) print "#define " $3 " " t "__" $3
+                  }'
+          } > multicall/${tool}.rename.h
+        '')
+        multicallObjs)}
+
+      # Phase B: per-tool rebuild and isolate. e2fsprogs's Makefile is
+      # recursive — misc/journal.o, misc/recovery.o, misc/revoke.o have
+      # custom cross-dir rules in misc/Makefile (compiled from
+      # e2fsck/journal.c et al). Running `make misc/journal.o` from the
+      # package root fails ("No rule to make target") because the
+      # top-level Makefile doesn't know that target — only misc/Makefile
+      # does. So group $objs by subdir and recurse via `make -C
+      # <subdir> <basename>` for each group.
+      : > multicall/all_objs.list
+      ${lib.concatStringsSep "\n      " (lib.mapAttrsToList
+        (tool: objs: ''
+          rm -f ${lib.concatStringsSep " " objs}
+          declare -A _e2fs_subdirs_${tool}=()
+          for obj in ${lib.concatStringsSep " " objs}; do
+            subdir=$(dirname "$obj")
+            base=$(basename "$obj")
+            _e2fs_subdirs_${tool}[$subdir]+=" $base"
+          done
+          for subdir in "''${!_e2fs_subdirs_${tool}[@]}"; do
+            NIX_CFLAGS_COMPILE="$_orig_NIX_CFLAGS_COMPILE -include $PWD/multicall/${tool}.rename.h" \
+              make -C "$subdir" -j''${NIX_BUILD_CORES:-1} ''${_e2fs_subdirs_${tool}[$subdir]}
+          done
+          unset _e2fs_subdirs_${tool}
+          mkdir -p multicall/${tool}
+          for obj in ${lib.concatStringsSep " " objs}; do
+            flat=$(echo "$obj" | tr '/' '_')
+            cp "$obj" "multicall/${tool}/$flat"
+            echo "multicall/${tool}/$flat" >> multicall/all_objs.list
+          done
+        '')
         multicallObjs)}
 
       $CC -O2 -c -o multicall/dispatcher.o multicall/dispatcher.c
@@ -306,32 +318,29 @@ DISPATCHER_EOF
       # so LIBBLKID becomes `$(LIB)/libblkid.a $(LIBUUID)`. Hard-coding
       # `-lblkid -luuid` breaks Darwin; hard-coding the .a paths breaks
       # Linux. Make's variable expansion is the source of truth.
-      #
-      # Listed libraries are the union of what mke2fs (+LIBARCHIVE, +LIBMAGIC),
-      # tune2fs/dumpe2fs (subset), and e2fsck (+LIBSUPPORT, +LIBSS) each
-      # link against in their per-target recipes.
       install -m644 ${multicallMk} misc/unpin-multicall.mk
 
       make -C misc -f Makefile -f unpin-multicall.mk \
+        MULTI_TOOL_OBJS="$(awk 'BEGIN{ORS=" "} { print "$(top_builddir)/" $0 }' multicall/all_objs.list)" \
         MULTI_GROUP_OPEN="${multicallGroupOpen}" \
         MULTI_GROUP_CLOSE="${multicallGroupClose}" \
         MULTI_LIBGCC="${multicallLibgcc}" \
         multicall-link
     '';
 
-    # Wipe upstream's installed binaries and replace with our single
-    # multicall + applet symlinks. Must clear both `$bin/bin` AND
-    # `$bin/sbin`: nixpkgs's fixupPhase (`_moveSbinToBin`) runs after
-    # postInstall and re-merges the surviving sbin entries (mke2fs,
-    # tune2fs, e2fsck, fsck.ext*, mkfs.ext*, ...) into `bin/`, which
-    # would re-introduce the originals next to our multicall.
-    postInstall = (old.postInstall or "") + ''
-      rm -rf "$bin/bin" "$bin/sbin"
-      mkdir -p "$bin/bin"
-      install -m755 multicall/e2fsprogs "$bin/bin/e2fsprogs"
+    # Skip upstream's `make install`: after X+Z's per-tool recompile
+    # (which renamed `main` to `<tool>_main` in every tool's .o files),
+    # automake's install rule would relink each tool's standalone binary
+    # — those links can't resolve `main` because we renamed it. We don't
+    # need the per-tool binaries; only the multicall + applet symlinks.
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/bin"
+      install -m755 multicall/e2fsprogs "$out/bin/e2fsprogs"
       for n in ${lib.concatStringsSep " " appletAliases}; do
-        ln -s e2fsprogs "$bin/bin/$n"
+        ln -s e2fsprogs "$out/bin/$n"
       done
+      runHook postInstall
     '';
   });
 in
