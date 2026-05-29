@@ -224,6 +224,13 @@ let
     outputs = [ "out" ];
     postInstall = "";
 
+    # Skip `make check`. It depends on `all`, which re-links the standalone
+    # per-tool binaries — and phase B renamed their `main` → `<tool>_main`,
+    # so that relink fails with "Undefined symbol _main". Same reason the
+    # installPhase below skips `make install`. Static-musl builds default to
+    # doCheck=false so this only bit the Darwin (native pkgsStatic) target.
+    doCheck = false;
+
     postBuild = (old.postBuild or "") + ''
       mkdir -p multicall
       cat > multicall/dispatcher.c <<'DISPATCHER_EOF'
@@ -250,9 +257,9 @@ DISPATCHER_EOF
       # --redefine-sym, no -flinker-output=nolto-rel. lto-plugin sees
       # tools + lib/{support,ext2fs,e2p,et} + musl together at final
       # link and inlines/DCEs across all of it. Drops Darwin's special
-      # `-exported_symbols_list + N_PEXT` ld64 trick because the
-      # preprocessor rename is platform-agnostic — Mach-O and ELF
-      # both consume already-renamed bitcode the same way.
+      # `-exported_symbols_list + N_PEXT` ld64 trick — the preprocessor
+      # rename works on both ABIs, with one Mach-O wrinkle (nm's leading
+      # `_` and `S`-tagged section data) normalized in phase A below.
       _orig_NIX_CFLAGS_COMPILE=''${NIX_CFLAGS_COMPILE:-}
 
       # Phase A: discovery (write rename headers from first-pass .o)
@@ -261,15 +268,27 @@ DISPATCHER_EOF
           {
             echo "/* multicall rename header: ${tool} */"
             echo "#define main ${tool}_main"
-            # Filter to valid C identifiers: gcc LTO sometimes emits
+            # Emit `#define <sym> <tool>__<sym>` for every defined global,
+            # keyed by the name the C SOURCE uses so the -include rename
+            # fires at preprocess time. Two Mach-O portability points:
+            #   - ld64 mangles C symbols with a leading `_` (nm prints
+            #     `_jbd2_journal_*` for source `jbd2_journal_*`). Strip one
+            #     `_` on Darwin or the macro key never matches the source
+            #     token, the rename no-ops, and the un-prefixed globals
+            #     collide at the final link (72 dup `_jbd2_*` symbols).
+            #   - Darwin nm tags section data (rodata/cstring) `S`, which
+            #     GNU nm doesn't — include it so data globals get renamed
+            #     too, not just `T` functions.
+            # Also filter to valid C identifiers: gcc LTO sometimes emits
             # globals with dot-disambiguation suffixes that aren't legal
             # cpp macro names.
             $NM --defined-only -g ${lib.concatStringsSep " " objs} 2>/dev/null \
-              | awk -v t="${tool}" '
-                  $2 ~ /^[TBDRWVC]$/ \
-                    && $3 ~ /^[A-Za-z_][A-Za-z0-9_]*$/ \
-                    && $3 != "main" {
-                    if (!seen[$3]++) print "#define " $3 " " t "__" $3
+              | awk -v t="${tool}" -v strip=${if isTargetDarwin then "1" else "0"} '
+                  $2 ~ /^[TBDRWVCS]$/ {
+                    sym = $3
+                    if (strip && sym ~ /^_/) sym = substr(sym, 2)
+                    if (sym ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && sym != "main" && !seen[sym]++)
+                      print "#define " sym " " t "__" sym
                   }'
           } > multicall/${tool}.rename.h
         '')
