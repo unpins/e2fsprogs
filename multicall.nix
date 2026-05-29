@@ -345,6 +345,13 @@ DISPATCHER_EOF
         MULTI_GROUP_CLOSE="${multicallGroupClose}" \
         MULTI_LIBGCC="${multicallLibgcc}" \
         multicall-link
+
+      # Generate the section-8 man pages for the applets we ship. Upstream
+      # `make install` is skipped (see installPhase), so build just the
+      # `<name>.8` targets — they run the .8.in → .8 substitution only (no
+      # relink), and the roff is platform-agnostic.
+      make -C misc   mke2fs.8 tune2fs.8 dumpe2fs.8 e2label.8 e2mmpstatus.8
+      make -C e2fsck e2fsck.8
     '';
 
     # Skip upstream's `make install`: after X+Z's per-tool recompile
@@ -359,6 +366,25 @@ DISPATCHER_EOF
       for n in ${lib.concatStringsSep " " appletAliases}; do
         ln -s e2fsprogs "$out/bin/$n"
       done
+
+      # Install man for the shipped applets so `lib.withMan` (embedMan, on by
+      # default) can fold them into the binary — `make install` is skipped, so
+      # without this the multicall ships man-less. Real pages for the canonical
+      # tools; `.so` stubs for the fs-variant aliases (mkfs.ext*/fsck.ext*),
+      # resolved inside the embedded archive by mkman's kind-0 .so support and
+      # mirroring the argv[0] dispatch (mkfs.ext* → mke2fs, fsck.ext* → e2fsck).
+      # findfs has no upstream man page (blkid-gated); e2label/e2mmpstatus do.
+      mkdir -p "$out/share/man/man8"
+      install -m644 misc/mke2fs.8 misc/tune2fs.8 misc/dumpe2fs.8 \
+                    misc/e2label.8 misc/e2mmpstatus.8 e2fsck/e2fsck.8 \
+                    "$out/share/man/man8/"
+      for a in mkfs.ext2 mkfs.ext3 mkfs.ext4; do
+        printf '.so man8/mke2fs.8\n' > "$out/share/man/man8/$a.8"
+      done
+      for a in fsck.ext2 fsck.ext3 fsck.ext4; do
+        printf '.so man8/e2fsck.8\n' > "$out/share/man/man8/$a.8"
+      done
+
       runHook postInstall
     '';
   });
