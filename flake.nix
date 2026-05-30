@@ -19,6 +19,15 @@
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
       name = "e2fsprogs";
+
+      # Smoke floor: bare `e2fsprogs` (no applet) prints usage and exits 1,
+      # so probe a representative applet through the argv[1] dispatch.
+      # `mke2fs -V` prints `mke2fs 1.47.3 (…)` to stderr and exits 0; the
+      # smoke step matches stdout+stderr, and the version-shaped pattern
+      # can't pass on the usage banner.
+      smoke = [ "mke2fs" "-V" ];
+      smokePattern = "mke2fs [0-9]+[.][0-9]+[.][0-9]+";
+
       build = pkgs:
         import ./multicall.nix {
           lib = pkgs.lib // unpins-lib.lib;

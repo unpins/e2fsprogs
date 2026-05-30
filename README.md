@@ -61,4 +61,11 @@ The first invocation will offer to add the [unpins.cachix.org](https://unpins.ca
 
 ## Manual download
 
-The [Releases](https://github.com/unpins/e2fsprogs/releases) page has standalone binaries and a `.tar.zst` data archive (man pages and locale files) for manual download.
+The [Releases](https://github.com/unpins/e2fsprogs/releases) page has standalone binaries for manual download.
+
+## Build notes
+
+- **Linux-only:** the boot-critical tools we ship talk to Linux block-device ioctls and kernel ext2/3/4 headers; macOS and Windows are not on the upstream support matrix.
+- **Multicall:** the per-tool upstream is post-linked into one ELF (`mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` + their argv[0] aliases). See [`multicall.nix`](multicall.nix) for the link mechanics (source-level `main` → `<tool>_main` rename, libgcc closure on i686, …).
+- **Man pages:** embedded in the binary (`.unpin_man`) — real section-8 pages for the canonical tools plus `.so` redirect stubs for the `mkfs.ext*`/`fsck.ext*` aliases, mirroring the argv[0] dispatch. Read with `unpin man e2fsprogs`.
+- **Tests:** no native suite runs. Upstream's `make check` first rebuilds the standalone per-tool binaries, but our multicall renamed every tool's `main` to `<tool>_main`, so that relink fails with *undefined reference to `main`* (verified). The real test suite also needs writable block devices CI can't provide.
