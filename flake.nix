@@ -28,9 +28,17 @@
       smoke = [ "mke2fs" "-V" ];
       smokePattern = "mke2fs [0-9]+[.][0-9]+[.][0-9]+";
 
+      # Windows: routed through Cosmopolitan (`windowsBuild = import
+      # ./cosmo.nix …`). mingw cross of e2fsprogs is a non-starter (no
+      # block-device / fs-image I/O layer, util-linux libblkid/libuuid deps);
+      # cosmocc builds the same source with a small set of libc-portability
+      # fixes (O_EXCL on regular files, internal libuuid/libblkid, zlib-only
+      # libarchive). Same X+Z multicall recipe as native — see ./multicall.nix.
+      windowsBuild = import ./cosmo.nix { inherit unpins-lib; };
+
       build = pkgs:
-        import ./multicall.nix {
+        (import ./multicall.nix {
           lib = pkgs.lib // unpins-lib.lib;
-        } pkgs;
+        }).native pkgs;
     };
 }
