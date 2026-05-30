@@ -4,10 +4,11 @@ Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as 
 
 [![CI](https://github.com/unpins/e2fsprogs/actions/workflows/e2fsprogs.yml/badge.svg)](https://github.com/unpins/e2fsprogs/actions)
 ![Linux](https://img.shields.io/badge/Linux-✓-success?logo=linux&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-✓-success?logo=apple&logoColor=white)
 
 Part of the [unpins](https://unpins.org) project — native single-binary builds with no third-party runtime dependencies.
 
-Linux-only: e2fsprogs talks to Linux block-device ioctls and uses kernel ext2/3/4 headers; macOS and Windows are not on the upstream support matrix for the boot-critical tools we package here.
+Linux and macOS: the tools create and check ext2/3/4 filesystems in regular files (images) on both. On Linux they also operate on block devices (`/dev/sd*`); macOS has no kernel ext driver, so there it is image-only — useful for building and verifying ext images that boot elsewhere. Windows is not built yet (a Cosmopolitan port is feasible but non-trivial — see Build notes).
 
 ## Usage
 
@@ -65,7 +66,7 @@ The [Releases](https://github.com/unpins/e2fsprogs/releases) page has standalone
 
 ## Build notes
 
-- **Linux-only:** the boot-critical tools we ship talk to Linux block-device ioctls and kernel ext2/3/4 headers; macOS and Windows are not on the upstream support matrix.
-- **Multicall:** the per-tool upstream is post-linked into one ELF (`mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` + their argv[0] aliases). See [`multicall.nix`](multicall.nix) for the link mechanics (source-level `main` → `<tool>_main` rename, libgcc closure on i686, …).
+- **Platforms:** Linux and macOS are built and shipped. macOS lacks a kernel ext driver, so the tools work on image files (`mke2fs -F disk.img`, `fsck`, `dumpe2fs`) but not on live block devices. Windows (Cosmopolitan) is feasible but not yet built — it's a multi-package port: cosmo fragments for `zstd` (static-only, `-DZSTD_DISABLE_ASM`) and `libarchive`, native-build-host overrides so helper-script tools (`zstd`'s `gnugrep`) aren't cross-compiled, internal `--enable-libuuid`/`--enable-libblkid` (the non-Linux configure branch already selects these, dropping the util-linux dep), a handful of cosmo-libc symbol-collision renames in e2fsprogs' generated tables (e.g. `link`), and the multicall recipe re-validated against cosmocc's apelink. libarchive stays, so `mke2fs -d <tarball>` is preserved.
+- **Multicall:** the per-tool upstream is post-linked into one ELF/Mach-O (`mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` + their argv[0] aliases). See [`multicall.nix`](multicall.nix) for the link mechanics (source-level `main` → `<tool>_main` rename, ELF objcopy `--redefine-sym` vs Mach-O `ld -r -exported_symbols_list`, libgcc closure on i686, …).
 - **Man pages:** embedded in the binary (`.unpin_man`) — real section-8 pages for the canonical tools plus `.so` redirect stubs for the `mkfs.ext*`/`fsck.ext*` aliases, mirroring the argv[0] dispatch. Read with `unpin man e2fsprogs`.
 - **Tests:** no native suite runs. Upstream's `make check` first rebuilds the standalone per-tool binaries, but our multicall renamed every tool's `main` to `<tool>_main`, so that relink fails with *undefined reference to `main`* (verified). The real test suite also needs writable block devices CI can't provide.
