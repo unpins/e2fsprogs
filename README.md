@@ -9,11 +9,11 @@ Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as 
 
 Part of the [unpins](https://unpins.org) project — native single-binary builds with no third-party runtime dependencies.
 
-All three platforms create and check ext2/3/4 filesystems in regular files (images). On Linux the tools also operate on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only — useful for building and verifying ext images that boot elsewhere. The Windows build is a [Cosmopolitan](https://github.com/jart/cosmopolitan) `.exe` (see Build notes).
+All three platforms create and check ext2/3/4 filesystems in image files. Linux also operates on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only. The Windows build is a [Cosmopolitan](https://github.com/jart/cosmopolitan) `.exe` (see Build notes).
 
 ## Usage
 
-The package ships one executable, `e2fsprogs`. `unpin install` materializes per-applet shims (`mkfs.ext4`, `fsck.ext4`, `tune2fs`, ...) next to the multicall using argv[0] dispatch. To run a command directly without installing, invoke as `e2fsprogs <applet>`:
+The package ships one executable, `e2fsprogs`. Invoke an applet as `e2fsprogs <applet>`, or let `unpin install` drop argv[0] shims (`mkfs.ext4`, `fsck.ext4`, ...) beside it:
 
 ```bash
 e2fsprogs mkfs.ext4 -F disk.img
@@ -21,16 +21,11 @@ e2fsprogs fsck.ext4 -p disk.img
 e2fsprogs tune2fs -l disk.img
 ```
 
-Or create symlinks named after the commands you want to use as bare names:
+Symlinks named after a command work too: `ln -s "$(command -v e2fsprogs)" ~/bin/mkfs.ext4`.
 
-```bash
-ln -s "$(command -v e2fsprogs)" ~/bin/mkfs.ext4
-mkfs.ext4 -F disk.img
-```
+Applets: `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, `fsck.ext{2,3,4}`.
 
-Built-in applets: `mke2fs`, `mkfs.ext2`, `mkfs.ext3`, `mkfs.ext4`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, `fsck.ext2`, `fsck.ext3`, `fsck.ext4`.
-
-libarchive is linked in statically so `mke2fs -d <source>` (populate the new filesystem from a directory tree or a tar/cpio archive) works out of the box.
+libarchive is linked in statically, so `mke2fs -d <source>` populates the new filesystem from a directory tree or a tar/cpio archive.
 
 ## Installation
 
@@ -67,7 +62,8 @@ The [Releases](https://github.com/unpins/e2fsprogs/releases) page has standalone
 
 ## Build notes
 
-- **Platforms:** Linux, macOS, and Windows are built and shipped. macOS and Windows lack a kernel ext driver, so there the tools work on image files (`mke2fs -F disk.img`, `fsck`, `dumpe2fs`) but not on live block devices. The Windows build goes through [Cosmopolitan](https://github.com/jart/cosmopolitan) (`cosmocc` → APE `.exe`) rather than mingw — see [`cosmo.nix`](cosmo.nix). It uses the non-Linux configure branch (internal `--enable-libuuid`/`--enable-libblkid`, dropping the util-linux dep) plus five libc-portability fixes: O_EXCL neutralized on the image fd (cosmo's NT `open()` rejects `O_RDWR|O_EXCL` on a regular file with EINVAL), a `link`/`et_list` symbol-collision rename, `__u64` type detection via `<linux/types.h>`, a no-op `sbrk` stub, and a `readdir`-based `scandir` for `mke2fs -d <dir>` (cosmo's system `scandir` is broken and its `readdir` leaves `d_reclen = 0`). libarchive is included (zlib-only on Windows: `.tar`/`.tar.gz` populate via `mke2fs -d`; bz2/xz/zstd-compressed archives are Linux/macOS-only). Note: with no `/etc/mtab` on Windows the tools print a harmless "Can't check if filesystem is mounted" warning.
-- **Multicall:** the per-tool upstream is post-linked into one ELF/Mach-O (`mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` + their argv[0] aliases). See [`multicall.nix`](multicall.nix) for the link mechanics (source-level `main` → `<tool>_main` rename, ELF objcopy `--redefine-sym` vs Mach-O `ld -r -exported_symbols_list`, libgcc closure on i686, …).
-- **Man pages:** embedded in the binary (`.unpin_man`) — real section-8 pages for the canonical tools plus `.so` redirect stubs for the `mkfs.ext*`/`fsck.ext*` aliases, mirroring the argv[0] dispatch. Read with `unpin man e2fsprogs`.
-- **Tests:** no native suite runs. Upstream's `make check` first rebuilds the standalone per-tool binaries, but our multicall renamed every tool's `main` to `<tool>_main`, so that relink fails with *undefined reference to `main`* (verified). The real test suite also needs writable block devices CI can't provide.
+- **Platforms:** Linux, macOS, Windows. macOS and Windows have no kernel ext driver, so the tools work on image files but not live block devices.
+- **Windows:** built via [Cosmopolitan](https://github.com/jart/cosmopolitan) (`cosmocc` → APE `.exe`), not mingw — see [`cosmo.nix`](cosmo.nix). Uses the non-Linux configure branch (internal libuuid/libblkid, no util-linux dep) plus five libc-portability fixes: O_EXCL neutralized on the image fd (cosmo's NT `open()` EINVALs on `O_RDWR|O_EXCL` for a regular file), `link`/`et_list` symbol rename, `__u64` detection via `<linux/types.h>`, a no-op `sbrk` stub, and a `readdir`-based `scandir` for `mke2fs -d` (cosmo's `scandir` is broken, `readdir` leaves `d_reclen = 0`). libarchive is zlib-only here — `.tar`/`.tar.gz` work; bz2/xz/zstd archives are Linux/macOS-only. With no `/etc/mtab`, tools print a harmless "Can't check if filesystem is mounted" warning.
+- **Multicall:** the per-tool upstream is post-linked into one ELF/Mach-O via a source-level `main` → `<tool>_main` rename. See [`multicall.nix`](multicall.nix) for the link mechanics.
+- **Man pages:** embedded in the binary (`.unpin_man`), read with `unpin man e2fsprogs` — real section-8 pages plus `.so` redirect stubs for the aliases.
+- **Tests:** no native suite runs. Upstream `make check` first relinks the standalone per-tool binaries, which fails because the multicall renamed every `main` to `<tool>_main` (verified); it also needs writable block devices CI can't provide.

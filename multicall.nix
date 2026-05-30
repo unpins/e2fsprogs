@@ -87,9 +87,10 @@ let
     "e2fsck" "fsck.ext2" "fsck.ext3" "fsck.ext4"
   ];
 
-  # Dispatcher source. Routes basename(argv[0]) → tool_main. Extra
-  # `e2fsprogs <applet> [args]` form so the primary binary is still
-  # callable directly without renaming/symlinking. Strips a trailing
+  # Dispatcher source. Routes basename(argv[0]) → tool_main. When argv[0]
+  # isn't itself an applet name it falls through to the `<prog> <applet>
+  # [args]` form, so the primary binary stays callable directly AND survives
+  # a rename (CI smoke copies the binary to `smoke.exe`). Strips a trailing
   # `.exe` (Windows argv[0]) and an `lt-` libtool prefix before matching.
   dispatcherC = ''
     #include <string.h>
@@ -139,19 +140,26 @@ let
         }
         if (strncmp(name, "lt-", 3) == 0) name += 3;
 
-        if (strcmp(name, "e2fsprogs") == 0) {
-            if (argc < 2) {
-                fprintf(stderr, "e2fsprogs: usage: %s <applet> [args...]\n", argv[0]);
-                fprintf(stderr, "applets:");
-                for (const struct applet *a = applets; a->name; a++)
-                    fprintf(stderr, " %s", a->name);
-                fprintf(stderr, "\n");
-                return 1;
-            }
-            name = argv[1];
-            argv++;
-            argc--;
+        /* Direct dispatch when argv[0] is itself an applet name (symlink or
+           argv[0] alias). */
+        for (const struct applet *a = applets; a->name; a++) {
+            if (strcmp(name, a->name) == 0)
+                return a->fn(argc, argv);
         }
+
+        /* argv[0] isn't an applet (canonical `e2fsprogs`, or a rename such as
+           CI's `smoke.exe`): treat argv[1] as the applet. */
+        if (argc < 2) {
+            fprintf(stderr, "e2fsprogs: usage: %s <applet> [args...]\n", argv[0]);
+            fprintf(stderr, "applets:");
+            for (const struct applet *a = applets; a->name; a++)
+                fprintf(stderr, " %s", a->name);
+            fprintf(stderr, "\n");
+            return 1;
+        }
+        name = argv[1];
+        argv++;
+        argc--;
 
         for (const struct applet *a = applets; a->name; a++) {
             if (strcmp(name, a->name) == 0)
