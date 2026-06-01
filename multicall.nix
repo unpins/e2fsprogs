@@ -87,88 +87,19 @@ let
     "e2fsck" "fsck.ext2" "fsck.ext3" "fsck.ext4"
   ];
 
-  # Dispatcher source. Routes basename(argv[0]) → tool_main. When argv[0]
-  # isn't itself an applet name it falls through to the `<prog> <applet>
-  # [args]` form, so the primary binary stays callable directly AND survives
-  # a rename (CI smoke copies the binary to `smoke.exe`). Strips a trailing
-  # `.exe` (Windows argv[0]) and an `lt-` libtool prefix before matching.
-  dispatcherC = ''
-    #include <string.h>
-    #include <stdio.h>
-    #include <strings.h>
-
-    int mke2fs_main(int argc, char *argv[]);
-    int tune2fs_main(int argc, char *argv[]);
-    int dumpe2fs_main(int argc, char *argv[]);
-    int e2fsck_main(int argc, char *argv[]);
-
-    struct applet { const char *name; int (*fn)(int, char **); };
-
-    static const struct applet applets[] = {
-        {"mke2fs",    mke2fs_main},
-        {"mkfs.ext2", mke2fs_main},
-        {"mkfs.ext3", mke2fs_main},
-        {"mkfs.ext4", mke2fs_main},
-        {"tune2fs",   tune2fs_main},
-        {"e2label",   tune2fs_main},
-        {"e2mmpstatus", tune2fs_main},
-        {"findfs",    tune2fs_main},
-        {"dumpe2fs",  dumpe2fs_main},
-        {"e2fsck",    e2fsck_main},
-        {"fsck.ext2", e2fsck_main},
-        {"fsck.ext3", e2fsck_main},
-        {"fsck.ext4", e2fsck_main},
-        {NULL, NULL}
-    };
-
-    int main(int argc, char *argv[])
-    {
-        char buf[256];
-        char *name = argv[0];
-        char *slash = strrchr(name, '/');
-        if (slash) name = slash + 1;
-        slash = strrchr(name, '\\');           /* Windows path separator */
-        if (slash) name = slash + 1;
-
-        /* Drop a trailing ".exe" (cosmo/Windows argv[0]). */
-        size_t len = strlen(name);
-        if (len > 4 && len < sizeof(buf) &&
-            strcasecmp(name + len - 4, ".exe") == 0) {
-            memcpy(buf, name, len - 4);
-            buf[len - 4] = 0;
-            name = buf;
-        }
-        if (strncmp(name, "lt-", 3) == 0) name += 3;
-
-        /* Direct dispatch when argv[0] is itself an applet name (symlink or
-           argv[0] alias). */
-        for (const struct applet *a = applets; a->name; a++) {
-            if (strcmp(name, a->name) == 0)
-                return a->fn(argc, argv);
-        }
-
-        /* argv[0] isn't an applet (canonical `e2fsprogs`, or a rename such as
-           CI's `smoke.exe`): treat argv[1] as the applet. */
-        if (argc < 2) {
-            fprintf(stderr, "e2fsprogs: usage: %s <applet> [args...]\n", argv[0]);
-            fprintf(stderr, "applets:");
-            for (const struct applet *a = applets; a->name; a++)
-                fprintf(stderr, " %s", a->name);
-            fprintf(stderr, "\n");
-            return 1;
-        }
-        name = argv[1];
-        argv++;
-        argc--;
-
-        for (const struct applet *a = applets; a->name; a++) {
-            if (strcmp(name, a->name) == 0)
-                return a->fn(argc, argv);
-        }
-        fprintf(stderr, "e2fsprogs: unknown applet '%s'\n", name);
-        return 1;
-    }
-  '';
+  # Applet → C-symbol map (many names route to one tool's `<fn>_main`; mke2fs/
+  # tune2fs/e2fsck each re-check argv[0] internally for their variants). This is
+  # the many-to-one table the shared Recipe-A dispatcher
+  # (lib.multicallTableDispatcherC) needs; it's emitted as the
+  # `multicall/applets.list` TSV (name<TAB>fn) in postBuild, and the C symbol the
+  # generator references is `<fn>_main`.
+  appletFn = {
+    "mke2fs" = "mke2fs"; "mkfs.ext2" = "mke2fs"; "mkfs.ext3" = "mke2fs"; "mkfs.ext4" = "mke2fs";
+    "tune2fs" = "tune2fs"; "e2label" = "tune2fs"; "e2mmpstatus" = "tune2fs"; "findfs" = "tune2fs";
+    "dumpe2fs" = "dumpe2fs";
+    "e2fsck" = "e2fsck"; "fsck.ext2" = "e2fsck"; "fsck.ext3" = "e2fsck"; "fsck.ext4" = "e2fsck";
+  };
+  appletsListTSV = lib.concatStringsSep "\n" (map (n: "${n}\t${appletFn.${n}}") appletAliases);
 
   # Build the multicall from a base e2fsprogs derivation.
   #   aliasPkgs      pkgs passed to lib.withAliases / lib.withMan
@@ -218,8 +149,6 @@ let
         		$(MULTI_GROUP_CLOSE)
       '';
 
-      dispatcherCFile = hostTools.writeText "e2fsprogs-dispatcher.c" dispatcherC;
-
       multicall = basePkg.overrideAttrs (old: {
         pname = "e2fsprogs-multi";
 
@@ -237,7 +166,12 @@ let
 
         postBuild = (old.postBuild or "") + ''
           mkdir -p multicall
-          cp ${dispatcherCFile} multicall/dispatcher.c
+          # Emit applets.list (TSV name<TAB>fn) + generate dispatcher.c via the
+          # shared Recipe-A generator (nix-lib lib.multicallTableDispatcherC).
+          cat > multicall/applets.list <<'APPLETS_EOF'
+${appletsListTSV}
+APPLETS_EOF
+${lib.multicallTableDispatcherC { name = "e2fsprogs"; }}
 
           _orig_NIX_CFLAGS_COMPILE=''${NIX_CFLAGS_COMPILE:-}
 
@@ -361,7 +295,7 @@ let
 
 in
 {
-  inherit mkMulticall dispatcherC appletAliases multicallObjs;
+  inherit mkMulticall appletAliases multicallObjs;
 
   # Native (Linux ELF / macOS Mach-O) entry used by flake.nix `build`.
   native = pkgs: mkMulticall {
