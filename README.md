@@ -1,6 +1,6 @@
 # e2fsprogs
 
-Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as a single multicall binary with `mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` and their aliases (`mkfs.ext{2,3,4}`, `fsck.ext{2,3,4}`, `e2label`, `e2mmpstatus`, `findfs`).
+Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as a single binary providing `mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` and their aliases.
 
 [![CI](https://github.com/unpins/e2fsprogs/actions/workflows/e2fsprogs.yml/badge.svg)](https://github.com/unpins/e2fsprogs/actions)
 ![Linux](https://img.shields.io/badge/Linux-✓-success?logo=linux&logoColor=white)
@@ -13,23 +13,35 @@ All three platforms create and check ext2/3/4 filesystems in image files. Linux 
 
 ## Usage
 
-The package ships one executable, `e2fsprogs`. Run a program as `e2fsprogs <program>`, or let `unpin install` create the `mkfs.ext4`, `fsck.ext4`, … commands beside it:
+Run a program with [unpin](https://github.com/unpins/unpin):
 
 ```bash
-e2fsprogs mkfs.ext4 -F disk.img
-e2fsprogs fsck.ext4 -p disk.img
-e2fsprogs tune2fs -l disk.img
+unpin e2fsprogs mkfs.ext4 -F disk.img
+unpin e2fsprogs fsck.ext4 -p disk.img
+unpin e2fsprogs tune2fs -l disk.img
 ```
-
-Programs: `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, `fsck.ext{2,3,4}`.
 
 libarchive is linked in statically, so `mke2fs -d <source>` populates the new filesystem from a directory tree or a tar/cpio archive.
 
-To install it onto your PATH:
+To install the programs onto your PATH:
 
 ```bash
 unpin install e2fsprogs
 ```
+
+`unpin install e2fsprogs` creates the `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, and `fsck.ext{2,3,4}` commands.
+
+## Programs
+
+| command | what it does |
+| --- | --- |
+| `mke2fs` (`mkfs.ext{2,3,4}`) | create an ext2/3/4 filesystem |
+| `e2fsck` (`fsck.ext{2,3,4}`) | check and repair an ext2/3/4 filesystem |
+| `tune2fs` | view and adjust filesystem parameters |
+| `dumpe2fs` | print superblock and block-group information |
+| `e2label` | get or set the filesystem volume label |
+| `findfs` | find a filesystem by label or UUID |
+| `e2mmpstatus` | check multi-mount protection (MMP) status |
 
 ## Build locally
 
