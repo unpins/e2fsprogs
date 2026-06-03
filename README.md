@@ -27,18 +27,10 @@ Applets: `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `find
 
 libarchive is linked in statically, so `mke2fs -d <source>` populates the new filesystem from a directory tree or a tar/cpio archive.
 
-## Installation
-
-Install with [unpin](https://github.com/unpins/unpin):
+To install it onto your PATH:
 
 ```bash
-unpin e2fsprogs
-```
-
-Or run without installing:
-
-```bash
-unpin run e2fsprogs
+unpin install e2fsprogs
 ```
 
 ## Build locally
