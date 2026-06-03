@@ -1,6 +1,6 @@
 # e2fsprogs
 
-Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as a single multicall binary that dispatches to `mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck`, and their argv[0] aliases (`mkfs.ext{2,3,4}`, `fsck.ext{2,3,4}`, `e2label`, `e2mmpstatus`, `findfs`).
+Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as a single multicall binary with `mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` and their aliases (`mkfs.ext{2,3,4}`, `fsck.ext{2,3,4}`, `e2label`, `e2mmpstatus`, `findfs`).
 
 [![CI](https://github.com/unpins/e2fsprogs/actions/workflows/e2fsprogs.yml/badge.svg)](https://github.com/unpins/e2fsprogs/actions)
 ![Linux](https://img.shields.io/badge/Linux-✓-success?logo=linux&logoColor=white)
@@ -13,7 +13,7 @@ All three platforms create and check ext2/3/4 filesystems in image files. Linux 
 
 ## Usage
 
-The package ships one executable, `e2fsprogs`. Invoke an applet as `e2fsprogs <applet>`, or let `unpin install` drop argv[0] shims (`mkfs.ext4`, `fsck.ext4`, ...) beside it:
+The package ships one executable, `e2fsprogs`. Run a program as `e2fsprogs <program>`, or let `unpin install` create the `mkfs.ext4`, `fsck.ext4`, … commands beside it:
 
 ```bash
 e2fsprogs mkfs.ext4 -F disk.img
@@ -21,9 +21,7 @@ e2fsprogs fsck.ext4 -p disk.img
 e2fsprogs tune2fs -l disk.img
 ```
 
-Symlinks named after a command work too: `ln -s "$(command -v e2fsprogs)" ~/bin/mkfs.ext4`.
-
-Applets: `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, `fsck.ext{2,3,4}`.
+Programs: `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, `fsck.ext{2,3,4}`.
 
 libarchive is linked in statically, so `mke2fs -d <source>` populates the new filesystem from a directory tree or a tar/cpio archive.
 
