@@ -29,7 +29,7 @@ To install the programs onto your PATH:
 unpin install e2fsprogs
 ```
 
-`unpin install e2fsprogs` creates the `mke2fs`, `mkfs.ext{2,3,4}`, `tune2fs`, `e2label`, `e2mmpstatus`, `findfs`, `dumpe2fs`, `e2fsck`, and `fsck.ext{2,3,4}` commands.
+`unpin install e2fsprogs` creates the `mke2fs`, `e2fsck`, `tune2fs`, `dumpe2fs`, … commands, plus their `mkfs.ext{2,3,4}` / `fsck.ext{2,3,4}` aliases (full list: `unpin info e2fsprogs`, or the table below).
 
 ## Programs
 
