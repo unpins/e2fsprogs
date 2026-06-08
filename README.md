@@ -1,13 +1,13 @@
 # e2fsprogs
 
-Standalone build of [e2fsprogs](https://e2fsprogs.sourceforge.net/), shipped as a single binary providing `mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` and their aliases.
+[e2fsprogs](https://e2fsprogs.sourceforge.net/) — a single self-contained binary providing `mke2fs`, `tune2fs`, `dumpe2fs`, `e2fsck` and their aliases, built natively for Linux, macOS, and Windows.
 
 [![CI](https://github.com/unpins/e2fsprogs/actions/workflows/e2fsprogs.yml/badge.svg)](https://github.com/unpins/e2fsprogs/actions)
 ![Linux](https://img.shields.io/badge/Linux-✓-success?logo=linux&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-✓-success?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-✓-success?logo=windows&logoColor=white)
 
-Part of the [unpins](https://unpins.org) project — native single-binary builds with no third-party runtime dependencies.
+Part of the [unpins](https://unpins.org) catalog; install it with [`unpin`](https://github.com/unpins/unpin): `unpin install e2fsprogs`.
 
 All three platforms create and check ext2/3/4 filesystems in image files. Linux also operates on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only. The Windows build is a [Cosmopolitan](https://github.com/jart/cosmopolitan) `.exe` (see Build notes).
 
