@@ -19,6 +19,9 @@
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
       name = "e2fsprogs";
+      # shipped programs (mke2fs/e2fsck/…) are GPL-2.0-or-later; libext2fs/libcom_err
+      # (LGPL) and libuuid (BSD) are linked in but don't govern the binary.
+      license = "GPL-2.0-or-later";
 
       # Smoke floor: bare `e2fsprogs` (no applet) prints usage and exits 1,
       # so probe a representative applet through the argv[1] dispatch.
