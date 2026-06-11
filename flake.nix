@@ -1,5 +1,5 @@
 {
-  description = "Standalone build of e2fsprogs";
+  description = "e2fsprogs as a single self-contained binary";
 
   nixConfig = {
     extra-substituters = [ "https://unpins.cachix.org" ];
