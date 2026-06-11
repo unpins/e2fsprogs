@@ -29,19 +29,7 @@ To install the programs onto your PATH:
 unpin install e2fsprogs
 ```
 
-`unpin install e2fsprogs` creates the `mke2fs`, `e2fsck`, `tune2fs`, `dumpe2fs`, … commands, plus their `mkfs.ext{2,3,4}` / `fsck.ext{2,3,4}` aliases (full list: `unpin info e2fsprogs`, or the table below).
-
-## Programs
-
-| command | what it does |
-| --- | --- |
-| `mke2fs` (`mkfs.ext{2,3,4}`) | create an ext2/3/4 filesystem |
-| `e2fsck` (`fsck.ext{2,3,4}`) | check and repair an ext2/3/4 filesystem |
-| `tune2fs` | view and adjust filesystem parameters |
-| `dumpe2fs` | print superblock and block-group information |
-| `e2label` | get or set the filesystem volume label |
-| `findfs` | find a filesystem by label or UUID |
-| `e2mmpstatus` | check multi-mount protection (MMP) status |
+`unpin install e2fsprogs` creates the `mke2fs`, `e2fsck`, `tune2fs`, `dumpe2fs`, … commands, plus their `mkfs.ext{2,3,4}` / `fsck.ext{2,3,4}` aliases. `unpin info e2fsprogs` lists every command and what it does.
 
 ## Build locally
 
