@@ -9,12 +9,12 @@
   inputs.unpins-lib.url = "github:unpins/nix-lib";
 
   # Multi-binary upstream (mke2fs/tune2fs/dumpe2fs/e2fsck + their argv[0]-
-  # dispatch siblings like mkfs.ext2/3/4, e2label, fsck.ext2/3/4) is post-
-  # linked into a single multicall ELF/Mach-O via the recipe in
-  # ./multicall.nix. `lib.withAliases` then embeds the applet names as an
-  # UNPIN_META block so unpin's installer can recreate the argv[0] shims.
-  # See ./multicall.nix for the link mechanics (ELF objcopy --redefine-sym
-  # vs Mach-O ld -r -exported_symbols_list, libgcc closure on i686, …).
+  # dispatch siblings like mkfs.ext2/3/4, e2label, fsck.ext2/3/4) is folded
+  # into a single multicall binary. Linux + darwin fold via the unpin-llvm
+  # engine (bitcode self-fold, see the `build` fn); Windows uses the objcopy
+  # recipe in ./multicall.nix (cosmo.nix's `mkMulticall`). The applet names are
+  # embedded as an UNPIN_META block so unpin's installer recreates the argv[0]
+  # shims.
   outputs = { self, unpins-lib }:
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
@@ -39,9 +39,53 @@
       # libarchive). Same X+Z multicall recipe as native — see ./multicall.nix.
       windowsBuild = import ./cosmo.nix { inherit unpins-lib; };
 
+      # Build via the unpin-llvm engine + emit a bitcode multicall module. On
+      # Linux the engine compiles plain pkgsStatic.e2fsprogs (mke2fs/tune2fs/
+      # dumpe2fs/e2fsck are four separate binaries upstream builds by default)
+      # to bitcode and the standalone self-folds them into one `e2fsprogs`
+      # binary. The fs-variant names (mkfs.ext*/fsck.ext*) and the tools'
+      # internal argv[0]-recheck names (e2label/e2mmpstatus/findfs) are argv[0]
+      # aliases of their real program, not separate binaries. The old X+Z fold
+      # in ./multicall.nix can't run on the engine's -flto bitcode objects, so
+      # it's reserved for the Windows (cosmo) path. Pure C — no requires.cxx.
+      engine = "unpin-llvm";
+      multicall = {
+        programs = [
+          { name = "mke2fs"; aliases = [ "mkfs.ext2" "mkfs.ext3" "mkfs.ext4" ]; }
+          { name = "tune2fs"; aliases = [ "e2label" "e2mmpstatus" "findfs" ]; }
+          { name = "dumpe2fs"; }
+          { name = "e2fsck"; aliases = [ "fsck.ext2" "fsck.ext3" "fsck.ext4" ]; }
+        ];
+      };
+
+      # Engine path for Linux AND darwin (mac-on-mac): the four upstream binaries
+      # compile to bitcode and the standalone self-folds them into one
+      # `e2fsprogs`. multicall.nix's objcopy fold can't run here — nix-lib's
+      # universal bitcode libc makes the objects LLVM bitcode, which
+      # `llvm-objcopy --redefine-syms` rejects — so it's windows-only now (cosmo.nix
+      # still imports its `mkMulticall`).
+      #
+      # Drop libarchive (nixpkgs builds e2fsprogs `--with-libarchive=direct` for
+      # `mke2fs -d <tarball>` — populating an image straight from an archive; a
+      # source DIRECTORY still works without it). It pulls libxml2 (libarchive's
+      # XAR format support), and that hurts BOTH targets: on Linux libxml2's
+      # compiled-in default catalog path (file:///…/libxml2/etc/xml/catalog) is a
+      # store reference that keeps libxml2 in the closure; on darwin libarchive +
+      # libxml2 reference iconv/iconv_close/iconv_open, which live in a separate
+      # libiconv there (not libSystem) and go undefined at the mke2fs link. Both
+      # vanish once libarchive is out — the binary stays self-contained (0-ref) and
+      # links cleanly on darwin. Re-enable --with-libarchive if the archive-input
+      # feature is ever wanted (costs the closure ref + a darwin -liconv fix).
       build = pkgs:
-        (import ./multicall.nix {
-          lib = pkgs.lib // unpins-lib.lib;
-        }).native pkgs;
+        pkgs.pkgsStatic.e2fsprogs.overrideAttrs (old: {
+          configureFlags =
+            (builtins.filter
+              (f: !(pkgs.lib.hasPrefix "--with-libarchive" f))
+              (old.configureFlags or [ ]))
+            ++ [ "--without-libarchive" ];
+          buildInputs = builtins.filter
+            (x: !(pkgs.lib.hasInfix "libarchive" (x.pname or x.name or "")))
+            (old.buildInputs or [ ]);
+        });
     };
 }
