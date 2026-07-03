@@ -65,27 +65,49 @@
       # `llvm-objcopy --redefine-syms` rejects — so it's windows-only now (cosmo.nix
       # still imports its `mkMulticall`).
       #
-      # Drop libarchive (nixpkgs builds e2fsprogs `--with-libarchive=direct` for
-      # `mke2fs -d <tarball>` — populating an image straight from an archive; a
-      # source DIRECTORY still works without it). It pulls libxml2 (libarchive's
-      # XAR format support), and that hurts BOTH targets: on Linux libxml2's
-      # compiled-in default catalog path (file:///…/libxml2/etc/xml/catalog) is a
-      # store reference that keeps libxml2 in the closure; on darwin libarchive +
-      # libxml2 reference iconv/iconv_close/iconv_open, which live in a separate
-      # libiconv there (not libSystem) and go undefined at the mke2fs link. Both
-      # vanish once libarchive is out — the binary stays self-contained (0-ref) and
-      # links cleanly on darwin. Re-enable --with-libarchive if the archive-input
-      # feature is ever wanted (costs the closure ref + a darwin -liconv fix).
+      # libarchive is kept (nixpkgs builds e2fsprogs `--with-libarchive=direct`
+      # for `mke2fs -d <archive>` — populating an image straight from a tarball).
+      # It comes from the SHARED lib.unpinLibarchive recipe — the very same
+      # derivation `tar` links its bsdtar against — so the catalog mega folds ONE
+      # libarchive (an external STOREA depArchive, deduped by path) instead of a
+      # separate copy per consumer. That recipe drops xar/libxml2 and bakes the
+      # darwin iconv fix (libiconvReal), so libarchive.a references libiconv()
+      # rather than the SDK's plain iconv. e2fsprogs links mke2fs with
+      # `--with-libarchive=direct` and does NOT pull libarchive's transitive
+      # `-liconv`, so on darwin add it to the final link (structuredAttrs →
+      # env.NIX_LDFLAGS); darwinIconvFixed supplies the -L for libiconvReal. On
+      # Linux/musl iconv lives in libc, so nothing extra there.
+      #
+      # CRYPTO CONTAINMENT: the shared libarchive is built --with-mbedtls on linux
+      # (so `tar` keeps encrypted-ZIP/7z + mtree digests). e2fsprogs must NOT drag
+      # that crypto in. create_inode_libarchive.c's direct-link branch points its
+      # dispatcher at `archive_read_support_format_all`, which references the
+      # zip/7z/mtree handlers → the digest/cryptor layer → mbedtls. Repoint it at
+      # `archive_read_support_format_tar`: `mke2fs -d`'s job is "populate from a
+      # tarball", and the filter layer (archive_read_support_filter_all, still
+      # registered, crypto-free) transparently decompresses .tar.gz/.xz/.zst — so
+      # every compressed tarball still works, while e2fsprogs references NO crypto
+      # member and mbedtls stays out of its binary even though it links the same
+      # crypto-enabled `.a`. (cpio/zip/7z as an mke2fs image source are dropped —
+      # nobody populates an ext image from those; the feature is a tarball.)
       build = pkgs:
-        pkgs.pkgsStatic.e2fsprogs.overrideAttrs (old: {
-          configureFlags =
-            (builtins.filter
-              (f: !(pkgs.lib.hasPrefix "--with-libarchive" f))
-              (old.configureFlags or [ ]))
-            ++ [ "--without-libarchive" ];
-          buildInputs = builtins.filter
-            (x: !(pkgs.lib.hasInfix "libarchive" (x.pname or x.name or "")))
-            (old.buildInputs or [ ]);
+        let
+          lib = pkgs.lib;
+          isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+        in
+        (pkgs.pkgsStatic.e2fsprogs.override {
+          libarchive = unpins-lib.lib.unpinLibarchive pkgs;
+        }).overrideAttrs (old: {
+          postPatch = (old.postPatch or "") + ''
+            substituteInPlace misc/create_inode_libarchive.c \
+              --replace-fail \
+                'dl_archive_read_support_format_all = archive_read_support_format_all;' \
+                'dl_archive_read_support_format_all = archive_read_support_format_tar;'
+          '';
+        } // lib.optionalAttrs isDarwin {
+          env = (old.env or { }) // {
+            NIX_LDFLAGS = ((old.env or { }).NIX_LDFLAGS or "") + " -liconv";
+          };
         });
     };
 }
