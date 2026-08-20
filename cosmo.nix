@@ -139,7 +139,13 @@ let
     doCheck = false;
     configureFlags = (oa.configureFlags or [ ]) ++ [ "--disable-nls" ];
 
+
     postPatch = (oa.postPatch or "") + ''
+      # Same as the native build: ROOT_SYSCONFDIR points at /etc, not at our own
+      # store prefix. See flake.nix for the reasoning.
+      substituteInPlace lib/dirpaths.h.in \
+        --replace-fail '"@root_sysconfdir@"' '"/etc"'
+
       # fix 2: et_c.awk `struct et_list link` vs cosmocc POSIX link()
       sed -i \
         -e 's/struct et_list link = /struct et_list et_link = /' \

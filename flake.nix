@@ -99,6 +99,18 @@
           libarchive = unpins-lib.lib.unpinLibarchive pkgs;
         }).overrideAttrs (old: {
           postPatch = (old.postPatch or "") + ''
+            # mke2fs and e2fsck read $ROOT_SYSCONFDIR/{mke2fs,e2fsck}.conf, and
+            # configure substitutes that constant with our own store prefix
+            # (lib/dirpaths.h.in) -- the ONLY place the shipped binary looks,
+            # and it exists nowhere on a user's machine, so mke2fs silently
+            # falls back to its compiled-in defaults instead of the distro's
+            # filesystem profiles. /etc is where every distro keeps them.
+            # Substituting the TEMPLATE (not the make variable) leaves the
+            # install itself in $out: ROOT_SYSCONFDIR is baked at configure
+            # time, so a make-time override never reaches the binary.
+            substituteInPlace lib/dirpaths.h.in \
+              --replace-fail '"@root_sysconfdir@"' '"/etc"'
+
             substituteInPlace misc/create_inode_libarchive.c \
               --replace-fail \
                 'dl_archive_read_support_format_all = archive_read_support_format_all;' \
