@@ -16,6 +16,21 @@
   # embedded as an UNPIN_META block so unpin's installer recreates the argv[0]
   # shims.
   outputs = { self, unpins-lib }:
+    let
+      # The fs-variant names (mkfs.ext*/fsck.ext*) and the tools' internal
+      # argv[0]-recheck names (e2label/e2mmpstatus/findfs) are argv[0] aliases of
+      # their real program, not separate binaries.
+      programs = [
+        { name = "mke2fs"; aliases = [ "mkfs.ext2" "mkfs.ext3" "mkfs.ext4" ]; }
+        { name = "tune2fs"; aliases = [ "e2label" "e2mmpstatus" "findfs" ]; }
+        { name = "dumpe2fs"; }
+        { name = "e2fsck"; aliases = [ "fsck.ext2" "fsck.ext3" "fsck.ext4" ]; }
+      ];
+      # The cosmo fold dispatches exactly that set, so it reads the SAME list:
+      # ./multicall.nix renders applets.list and the dispatcher from the table,
+      # `withAliases` announces it, and `multicall.windowsTable` hands it to CI.
+      winTable = unpins-lib.lib.multicallTableOf { name = "e2fsprogs"; inherit programs; };
+    in
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
       name = "e2fsprogs";
@@ -37,7 +52,7 @@
       # cosmocc builds the same source with a small set of libc-portability
       # fixes (O_EXCL on regular files, internal libuuid/libblkid, zlib-only
       # libarchive). Same X+Z multicall recipe as native — see ./multicall.nix.
-      windowsBuild = import ./cosmo.nix { inherit unpins-lib; };
+      windowsBuild = import ./cosmo.nix { inherit unpins-lib winTable; };
 
       # Build via the unpin-llvm engine + emit a bitcode multicall module. On
       # Linux the engine compiles plain pkgsStatic.e2fsprogs (mke2fs/tune2fs/
@@ -50,12 +65,8 @@
       # it's reserved for the Windows (cosmo) path. Pure C — no requires.cxx.
       engine = "unpin-llvm";
       multicall = {
-        programs = [
-          { name = "mke2fs"; aliases = [ "mkfs.ext2" "mkfs.ext3" "mkfs.ext4" ]; }
-          { name = "tune2fs"; aliases = [ "e2label" "e2mmpstatus" "findfs" ]; }
-          { name = "dumpe2fs"; }
-          { name = "e2fsck"; aliases = [ "fsck.ext2" "fsck.ext3" "fsck.ext4" ]; }
-        ];
+        inherit programs;
+        windowsTable = winTable;
       };
 
       # Engine path for Linux AND darwin (mac-on-mac): the four upstream binaries

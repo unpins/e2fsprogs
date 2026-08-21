@@ -39,7 +39,7 @@
 #   - libarchive → zlib-only:  dropping bz2/xz/zstd/lzo/openssl avoids
 #     porting four more libs to cosmocc and the OpenSSL-3 EVP_MAC static-link
 #     gap; `mke2fs -d` still reads .tar and .tar.gz.
-{ unpins-lib }:
+{ unpins-lib, winTable }:
 pkgs:
 let
   cosmoPkgs = unpins-lib.lib.cosmoStaticCross pkgs;
@@ -180,7 +180,7 @@ let
   });
 
 in
-(import ./multicall.nix { inherit lib; }).mkMulticall {
+(import ./multicall.nix { inherit lib winTable; }).mkMulticall {
   aliasPkgs = cosmoPkgs;
   hostTools = nat;
   basePkg = basePkg;

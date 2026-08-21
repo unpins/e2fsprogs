@@ -41,7 +41,7 @@
 # Measured win (x86_64 musl-static, stripped, with full libarchive):
 # 4 separate bins ~13 MB total → 1 multicall ~8.3 MB. 13 applet names
 # embedded.
-{ lib }:
+{ lib, winTable }:
 let
   multicallObjs = {
     mke2fs = [
@@ -76,30 +76,11 @@ let
     ];
   };
 
-  # Applet names dispatched by argv[0]. Mke2fs/tune2fs/e2fsck each do their
-  # own argv[0] re-check internally (e.g. tune2fs recognises e2label/
-  # e2mmpstatus/findfs), so we route the alias straight to the tool main
-  # and the tool decides the variant.
-  appletAliases = [
-    "mke2fs" "mkfs.ext2" "mkfs.ext3" "mkfs.ext4"
-    "tune2fs" "e2label" "e2mmpstatus" "findfs"
-    "dumpe2fs"
-    "e2fsck" "fsck.ext2" "fsck.ext3" "fsck.ext4"
-  ];
-
-  # Applet → C-symbol map (many names route to one tool's `<fn>_main`; mke2fs/
-  # tune2fs/e2fsck each re-check argv[0] internally for their variants). This is
-  # the many-to-one table the shared Recipe-A dispatcher
-  # (lib.multicallTableDispatcherC) needs; it's emitted as the
-  # `multicall/applets.list` TSV (name<TAB>fn) in postBuild, and the C symbol the
-  # generator references is `<fn>_main`.
-  appletFn = {
-    "mke2fs" = "mke2fs"; "mkfs.ext2" = "mke2fs"; "mkfs.ext3" = "mke2fs"; "mkfs.ext4" = "mke2fs";
-    "tune2fs" = "tune2fs"; "e2label" = "tune2fs"; "e2mmpstatus" = "tune2fs"; "findfs" = "tune2fs";
-    "dumpe2fs" = "dumpe2fs";
-    "e2fsck" = "e2fsck"; "fsck.ext2" = "e2fsck"; "fsck.ext3" = "e2fsck"; "fsck.ext4" = "e2fsck";
-  };
-  appletsListTSV = lib.concatStringsSep "\n" (map (n: "${n}\t${appletFn.${n}}") appletAliases);
+  # Every name the binary answers to, from the table the flake declares. The
+  # many-to-one rows are the point: mke2fs/tune2fs/e2fsck each re-check argv[0]
+  # internally (tune2fs recognises e2label/e2mmpstatus/findfs), so an alias
+  # routes straight to its tool's main and the tool decides the variant.
+  appletAliases = winTable.announced;
 
   # Build the multicall from a base e2fsprogs derivation.
   #   aliasPkgs      pkgs passed to lib.withAliases / lib.withMan
@@ -165,13 +146,10 @@ let
         doCheck = false;
 
         postBuild = (old.postBuild or "") + ''
-          mkdir -p multicall
-          # Emit applets.list (TSV name<TAB>fn) + generate dispatcher.c via the
-          # shared Recipe-A generator (nix-lib lib.multicallTableDispatcherC).
-          cat > multicall/applets.list <<'APPLETS_EOF'
-${appletsListTSV}
-APPLETS_EOF
-${lib.multicallTableDispatcherC { name = "e2fsprogs"; }}
+          # applets.list + dispatcher.c, both rendered from the ONE table the
+          # flake declares. e2fsprogs is not itself a program, so the table's
+          # naming rule lists on a bare or unknown name.
+${winTable.emit { }}
 
           _orig_NIX_CFLAGS_COMPILE=''${NIX_CFLAGS_COMPILE:-}
 
