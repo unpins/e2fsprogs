@@ -224,7 +224,7 @@ ${winTable.emit { }}
           # Upstream `make install` is skipped, so build just the `<name>.8`
           # targets (the .8.in → .8 substitution, no relink; roff is
           # platform-agnostic).
-          make -C misc   mke2fs.8 tune2fs.8 dumpe2fs.8 e2label.8 e2mmpstatus.8
+          make -C misc   mke2fs.8 tune2fs.8 dumpe2fs.8 e2label.8 e2mmpstatus.8 findfs.8
           make -C e2fsck e2fsck.8
         '';
 
@@ -247,10 +247,14 @@ ${winTable.emit { }}
           # canonical tools; `.so` stubs for the fs-variant aliases
           # (mkfs.ext*/fsck.ext*), resolved inside the embedded archive by
           # mkman's kind-0 .so support and mirroring the argv[0] dispatch.
-          # findfs has no upstream man page (blkid-gated); e2label/e2mmpstatus do.
+          # findfs.8 is `SMANPAGES`-gated on @BLKID_CMT@ upstream, but the `.8`
+          # rule is not and this build DOES dispatch findfs (the cosmo branch
+          # takes the private blkid, so CONFIG_BUILD_FINDFS is on) — it was the
+          # one announced name shipping without a page.
           mkdir -p "$out/share/man/man8"
           install -m644 misc/mke2fs.8 misc/tune2fs.8 misc/dumpe2fs.8 \
-                        misc/e2label.8 misc/e2mmpstatus.8 e2fsck/e2fsck.8 \
+                        misc/e2label.8 misc/e2mmpstatus.8 misc/findfs.8 \
+                        e2fsck/e2fsck.8 \
                         "$out/share/man/man8/"
           for a in mkfs.ext2 mkfs.ext3 mkfs.ext4; do
             printf '.so man8/mke2fs.8\n' > "$out/share/man/man8/$a.8"

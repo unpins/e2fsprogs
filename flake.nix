@@ -19,7 +19,8 @@
     let
       # The fs-variant names (mkfs.ext*/fsck.ext*) and the tools' internal
       # argv[0]-recheck names (e2label/e2mmpstatus/findfs) are argv[0] aliases of
-      # their real program, not separate binaries.
+      # their real program, not separate binaries. `findfs` needs
+      # CONFIG_BUILD_FINDFS — see `build`.
       programs = [
         { name = "mke2fs"; aliases = [ "mkfs.ext2" "mkfs.ext3" "mkfs.ext4" ]; }
         { name = "tune2fs"; aliases = [ "e2label" "e2mmpstatus" "findfs" ]; }
@@ -105,10 +106,38 @@
         let
           lib = pkgs.lib;
           isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+          isLinux = pkgs.stdenv.hostPlatform.isLinux;
         in
         (pkgs.pkgsStatic.e2fsprogs.override {
           libarchive = unpins-lib.lib.unpinLibarchive pkgs;
         }).overrideAttrs (old: {
+          # `findfs` is announced on every target and, on LINUX ONLY, dispatched
+          # nowhere: tune2fs.c wraps both do_findfs() and its argv[0] check in
+          # `#ifdef CONFIG_BUILD_FINDFS`, which configure defines only when
+          # e2fsprogs builds its PRIVATE blkid — and nixpkgs passes
+          # `--disable-libblkid` on Linux to use util-linux's. Measured on the
+          # published artifact: `e2fsprogs --unpin-program=findfs LABEL=x` fell
+          # through to tune2fs' own option parser. The non-Linux branch has no
+          # such flag, so darwin and the cosmo .exe were always fine.
+          #
+          # Define the macro instead of flipping `--disable-libblkid`: the ONLY
+          # thing the flag would buy is this macro, and it would swap the
+          # maintained util-linux libblkid — already linked, since tune2fs calls
+          # blkid_get_devname() outside the ifdef for `-U`/journal lookups — for
+          # e2fsprogs' frozen in-tree copy. Same reason `findfs.8` is installed
+          # by hand below: `FINDFS_MAN` is gated on the same @BLKID_CMT@.
+          #
+          # One `env`, both platforms: a trailing `// lib.optionalAttrs isDarwin
+          # { env = …; }` REPLACES the attr rather than merging into it, so the
+          # darwin -liconv below would have dropped this silently.
+          env = (old.env or { })
+            // lib.optionalAttrs isLinux {
+            NIX_CFLAGS_COMPILE = ((old.env or { }).NIX_CFLAGS_COMPILE or "")
+              + " -DCONFIG_BUILD_FINDFS";
+          }
+            // lib.optionalAttrs isDarwin {
+            NIX_LDFLAGS = ((old.env or { }).NIX_LDFLAGS or "") + " -liconv";
+          };
           postPatch = (old.postPatch or "") + ''
             # mke2fs and e2fsck read $ROOT_SYSCONFDIR/{mke2fs,e2fsck}.conf, and
             # configure substitutes that constant with our own store prefix
@@ -127,10 +156,17 @@
                 'dl_archive_read_support_format_all = archive_read_support_format_all;' \
                 'dl_archive_read_support_format_all = archive_read_support_format_tar;'
           '';
-        } // lib.optionalAttrs isDarwin {
-          env = (old.env or { }) // {
-            NIX_LDFLAGS = ((old.env or { }).NIX_LDFLAGS or "") + " -liconv";
-          };
+          # `SMANPAGES` takes findfs.8 from `$(FINDFS_MAN)`, empty under
+          # `--disable-libblkid` — so the page the macro above makes reachable
+          # still isn't installed. The `.8` rule itself is unconditional (a
+          # `.8.in` substitution, no link), so build and install just that one.
+          # `$man`, not `$out`: upstream's own install already wrote man8 into the
+          # split output, and a second `$out/share/man/man8` makes the multiout
+          # move fail outright ("Directory not empty") rather than merge.
+          postInstall = (old.postInstall or "") + lib.optionalString isLinux ''
+            make -C misc findfs.8
+            install -Dm644 misc/findfs.8 "''${man:-$out}/share/man/man8/findfs.8"
+          '';
         });
     };
 }
