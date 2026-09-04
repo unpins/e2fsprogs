@@ -17,20 +17,48 @@
   # shims.
   outputs = { self, unpins-lib }:
     let
+      # The four filesystem tools every platform gets. Windows (cosmo) and
+      # darwin stop here: cosmo.nix's recipe builds exactly these, and the rest
+      # of upstream is Linux-only (ioctl-driven attribute/extent tools).
+      #
       # The fs-variant names (mkfs.ext*/fsck.ext*) and the tools' internal
       # argv[0]-recheck names (e2label/e2mmpstatus/findfs) are argv[0] aliases of
       # their real program, not separate binaries. `findfs` needs
       # CONFIG_BUILD_FINDFS — see `build`.
-      programs = [
+      corePrograms = [
         { name = "mke2fs"; aliases = [ "mkfs.ext2" "mkfs.ext3" "mkfs.ext4" ]; }
         { name = "tune2fs"; aliases = [ "e2label" "e2mmpstatus" "findfs" ]; }
         { name = "dumpe2fs"; }
         { name = "e2fsck"; aliases = [ "fsck.ext2" "fsck.ext3" "fsck.ext4" ]; }
       ];
-      # The cosmo fold dispatches exactly that set, so it reads the SAME list:
+      # Linux folds every program upstream installs, not just the four above.
+      # They were left out when this package was a hand-rolled X+Z fold (each
+      # extra tool cost a rename pass); the engine self-fold has no such cost —
+      # the capture sidecar already records a link for each one — and the man
+      # set embedded next to them documents all of them, so a binary with only
+      # four was shipping pages for programs it did not have.
+      programs = corePrograms ++ map (n: { name = n; }) [
+        "badblocks"
+        "chattr"
+        "debugfs"
+        "e2freefrag"
+        "e2image"
+        "e2undo"
+        "e4crypt"
+        "e4defrag"
+        "filefrag"
+        "logsave"
+        "lsattr"
+        "mklost+found"
+        "resize2fs"
+      ];
+      # Every name the dispatcher answers to on a given target, aliases folded
+      # in: what the embedded man set has to cover, and nothing more.
+      announcedOf = ps: builtins.concatMap (p: [ p.name ] ++ (p.aliases or [ ])) ps;
+      # The cosmo fold dispatches the core set, so it reads the SAME list:
       # ./multicall.nix renders applets.list and the dispatcher from the table,
       # `withAliases` announces it, and `multicall.windowsTable` hands it to CI.
-      winTable = unpins-lib.lib.multicallTableOf { name = "e2fsprogs"; inherit programs; };
+      winTable = unpins-lib.lib.multicallTableOf { name = "e2fsprogs"; programs = corePrograms; };
     in
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
@@ -67,6 +95,9 @@
       engine = "unpin-llvm";
       multicall = {
         inherit programs;
+        # darwin has no ext driver and no Linux ioctls: it keeps the four
+        # image-level tools.
+        darwinPrograms = corePrograms;
         windowsTable = winTable;
       };
 
@@ -151,6 +182,15 @@
             substituteInPlace lib/dirpaths.h.in \
               --replace-fail '"@root_sysconfdir@"' '"/etc"'
 
+            # Same story for the translations: `@datadir@/locale` is our own
+            # store prefix, so `bindtextdomain` looks where only the build host
+            # has anything. `/usr/share/locale` is upstream's own fallback (see
+            # the `#ifndef LOCALEDIR` in e2fsck.h) and where every distro keeps
+            # the `.mo` files. The install stays in $out -- this is the header
+            # template, not the make variable.
+            substituteInPlace lib/dirpaths.h.in \
+              --replace-fail '"@datadir@/locale"' '"/usr/share/locale"'
+
             substituteInPlace misc/create_inode_libarchive.c \
               --replace-fail \
                 'dl_archive_read_support_format_all = archive_read_support_format_all;' \
@@ -166,6 +206,26 @@
           postInstall = (old.postInstall or "") + lib.optionalString isLinux ''
             make -C misc findfs.8
             install -Dm644 misc/findfs.8 "''${man:-$out}/share/man/man8/findfs.8"
+          '' + ''
+            # Upstream installs a page for everything in the tree, this binary
+            # folds the programs listed above, and the whole man tree gets
+            # embedded -- so `unpin man e2fsprogs debugfs` used to render for
+            # tools that were not in there (and, before the fold grew, for most
+            # of the package). Keep a page only where there is a program to run,
+            # plus the config/format pages those programs read.
+            __unpin_keep="mke2fs.conf e2fsck.conf ext2 ext3 ext4 ${
+              builtins.concatStringsSep " "
+                (announcedOf (if isDarwin then corePrograms else programs))
+            }"
+            find "''${man:-$out}/share/man" \( -type f -o -type l \) -print | while read -r __unpin_f; do
+              __unpin_s=''${__unpin_f##*/}
+              __unpin_s=''${__unpin_s%.gz}
+              __unpin_s=''${__unpin_s%.[0-9]}
+              case " $__unpin_keep " in
+                *" $__unpin_s "*) ;;
+                *) rm -f "$__unpin_f" ;;
+              esac
+            done
           '';
         });
     };
