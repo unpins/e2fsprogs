@@ -38,7 +38,9 @@
 #   - withFuse = false / shared = false:  no fuse2fs, static only.
 #   - libarchive → zlib-only:  dropping bz2/xz/zstd/lzo/openssl avoids
 #     porting four more libs to cosmocc and the OpenSSL-3 EVP_MAC static-link
-#     gap; `mke2fs -d` still reads .tar and .tar.gz.
+#     gap; `mke2fs -d` still reads .tar and .tar.gz (see the LIBARCHIVE
+#     note below -- gzip needs -lz on the final link, not just in
+#     libarchive's own configure).
 { unpins-lib, winTable }:
 pkgs:
 let
@@ -138,6 +140,19 @@ let
   }).overrideAttrs (oa: {
     doCheck = false;
     configureFlags = (oa.configureFlags or [ ]) ++ [ "--disable-nls" ];
+
+    # libarchive calls into zlib for gzip, and e2fsprogs links it as a bare
+    # `-larchive`: `AC_CHECK_LIB(archive, archive_read_new)` resolves without
+    # pulling the objects that need crc32/inflate, so the probe passes and the
+    # final link is the one that fails. `SYSLIBS` (where a seeded `LIBS` would
+    # land) comes BEFORE `LIBARCHIVE` on those link lines, so the only place
+    # that works is `LIBARCHIVE` itself.
+    buildInputs = (oa.buildInputs or [ ]) ++ [ cosmoPkgs.zlib ];
+    postConfigure = (oa.postConfigure or "") + ''
+      grep -q '^LIBARCHIVE = .*-larchive' MCONFIG
+      sed -i 's|^\(LIBARCHIVE = .*\)$|\1 -lz|' MCONFIG
+      grep -q '^LIBARCHIVE = .*-lz' MCONFIG
+    '';
 
 
     postPatch = (oa.postPatch or "") + ''

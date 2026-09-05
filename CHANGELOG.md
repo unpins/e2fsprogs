@@ -13,6 +13,9 @@
 
 ### Fixed
 
+- On Windows, `mke2fs -d` now reads a `.tar.gz`. It failed on one
+  (`Unknown code ____ 226 while populating file system`) because the build had
+  no gzip support at all; a plain `.tar` worked and a compressed one did not.
 - `unpin install e2fsprogs` now creates the commands. In the v1.47.3-1 release
   it created only `e2fsprogs` itself: the list of program names never made it
   into the published Linux binary, so `mke2fs`, `e2fsck` and the aliases were
