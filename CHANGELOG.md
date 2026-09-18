@@ -35,6 +35,7 @@
 
 ### Changed
 
+- Updated to e2fsprogs 1.47.4.
 - One manual page per program the binary actually runs, plus the
   `mke2fs.conf`/`e2fsck.conf` and `ext2`/`ext3`/`ext4` format pages. Pages for
   tools this binary does not ship are no longer embedded, so
