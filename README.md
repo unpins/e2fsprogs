@@ -9,7 +9,7 @@
 
 Part of the [unpins](https://unpins.org) catalog; install it with [`unpin`](https://github.com/unpins/unpin): `unpin install e2fsprogs`.
 
-All three platforms create and check ext2/3/4 filesystems in image files. Linux also operates on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only. Linux carries the whole tool set; macOS and Windows carry the four image-level tools (see the table below). The Windows build is a [Cosmopolitan](https://github.com/jart/cosmopolitan) `.exe` (see Build notes).
+All three platforms create and check ext2/3/4 filesystems in image files. Linux also operates on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only. Linux carries the whole tool set; macOS and Windows carry the four image-level tools (see the table below).
 
 ## Usage
 
@@ -21,7 +21,7 @@ unpin e2fsprogs --unpin-program=fsck.ext4 -p disk.img
 unpin e2fsprogs --unpin-program=resize2fs disk.img 2G
 ```
 
-libarchive is linked in statically, so `mke2fs -d <source>` populates the new filesystem from a directory tree or a tar/cpio archive.
+libarchive is built in, so `mke2fs -d <source>` populates the new filesystem from a directory tree or a tar/cpio archive.
 
 To install the programs onto your PATH:
 
@@ -64,8 +64,7 @@ The [Releases](https://github.com/unpins/e2fsprogs/releases) page has standalone
 ## Build notes
 
 - **Platforms:** Linux, macOS, Windows. macOS and Windows have no kernel ext driver, so the tools work on image files but not live block devices.
-- **Windows:** built via [Cosmopolitan](https://github.com/jart/cosmopolitan), not mingw — see [`cosmo.nix`](cosmo.nix). Uses the non-Linux configure branch (internal libuuid/libblkid, no util-linux dep) plus five libc-portability fixes: O_EXCL neutralized on the image fd (cosmo's NT `open()` EINVALs on `O_RDWR|O_EXCL` for a regular file), `link`/`et_list` symbol rename, `__u64` detection via `<linux/types.h>`, a no-op `sbrk` stub, and a `readdir`-based `scandir` for `mke2fs -d` (cosmo's `scandir` is broken, `readdir` leaves `d_reclen = 0`). libarchive is zlib-only here — `.tar`/`.tar.gz` work; bz2/xz/zstd archives are Linux/macOS-only. With no `/etc/mtab`, tools print a harmless "Can't check if filesystem is mounted" warning.
-- **Multicall:** Linux and macOS fold the per-tool upstream through the unpin-llvm engine, which compiles each tool to bitcode and links them into one binary. Windows keeps the older post-link `main` → `<tool>_main` rename, since cosmocc is not the engine — see [`multicall.nix`](multicall.nix) for those link mechanics.
+- **Windows:** built via [Cosmopolitan](https://github.com/jart/cosmopolitan), not mingw. Only `.tar`/`.tar.gz` archives work there; bz2/xz/zstd archives are Linux/macOS-only. With no `/etc/mtab`, tools print a harmless "Can't check if filesystem is mounted" warning.
 - **Man pages:** embedded in the binary, read with `unpin man e2fsprogs <program>`, e.g. `unpin man e2fsprogs resize2fs`. One page per program the binary actually runs, plus the `mke2fs.conf`/`e2fsck.conf` and `ext2`/`ext3`/`ext4` format pages; upstream's pages for tools this binary does not ship are dropped rather than embedded.
 - **Translations:** upstream compiles the build prefix in as `LOCALEDIR`, which would point at a `/nix/store` path that exists on no user's machine. The lookup is repointed at `/usr/share/locale` — upstream's own fallback — so the messages come out translated wherever the distro's e2fsprogs `.mo` files are installed.
-- **Tests:** no native suite runs. Upstream `make check` first relinks the standalone per-tool binaries, which fails because the multicall renamed every `main` to `<tool>_main` (verified); it also needs writable block devices CI can't provide.
+- **Tests:** no native suite runs. Upstream `make check` first relinks the standalone per-tool binaries, which fails in this single-binary build (verified); it also needs writable block devices CI can't provide.
