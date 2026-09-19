@@ -95,6 +95,11 @@
       engine = "unpin-llvm";
       multicall = {
         inherit programs;
+        # darwin: gettext's libintl (langprefs.c) calls CoreFoundation for the
+        # user's preferred languages. The mega relinks from bitcode and never
+        # sees the -framework the static build got from libintl's link flags,
+        # so name it here.
+        requires.frameworks = [ "CoreFoundation" ];
         # darwin has no ext driver and no Linux ioctls: it keeps the four
         # image-level tools.
         darwinPrograms = corePrograms;
