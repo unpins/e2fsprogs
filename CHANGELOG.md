@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.47.4-1] - 2026-09-26
+
 ### Added
 
 - Thirteen more programs on Linux: `resize2fs`, `debugfs`, `badblocks`,
