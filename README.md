@@ -1,6 +1,6 @@
 # e2fsprogs
 
-[e2fsprogs](https://e2fsprogs.sourceforge.net/) — the ext2/3/4 filesystem tools (`mke2fs`, `e2fsck`, `tune2fs`, `resize2fs`, `debugfs`, `badblocks`, …) as a single self-contained binary, built natively for Linux, macOS, and Windows.
+[e2fsprogs](https://e2fsprogs.sourceforge.net/) — the ext2/3/4 filesystem programs (`mke2fs`, `e2fsck`, `tune2fs`, `resize2fs`, `debugfs`, `badblocks`, …) as a single self-contained binary, built natively for Linux, macOS, and Windows.
 
 [![CI](https://github.com/unpins/e2fsprogs/actions/workflows/e2fsprogs.yml/badge.svg)](https://github.com/unpins/e2fsprogs/actions)
 ![Linux](https://img.shields.io/badge/Linux-✓-success?logo=linux&logoColor=white)
@@ -9,7 +9,7 @@
 
 Part of the [unpins](https://unpins.org) catalog; install it with [`unpin`](https://github.com/unpins/unpin): `unpin install e2fsprogs`.
 
-All three platforms create and check ext2/3/4 filesystems in image files. Linux also operates on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only. Linux carries the whole tool set; macOS and Windows carry the four image-level tools (see the table below).
+All three platforms create and check ext2/3/4 filesystems in image files. Linux also operates on block devices (`/dev/sd*`); macOS and Windows have no kernel ext driver, so there it is image-only. Linux carries the whole program set; macOS and Windows carry the four image-level programs (see the table below).
 
 ## Usage
 
@@ -63,8 +63,8 @@ The [Releases](https://github.com/unpins/e2fsprogs/releases) page has standalone
 
 ## Build notes
 
-- **Platforms:** Linux, macOS, Windows. macOS and Windows have no kernel ext driver, so the tools work on image files but not live block devices.
-- **Windows:** built via [Cosmopolitan](https://github.com/jart/cosmopolitan), not mingw. Only `.tar`/`.tar.gz` archives work there; bz2/xz/zstd archives are Linux/macOS-only. With no `/etc/mtab`, tools print a harmless "Can't check if filesystem is mounted" warning.
-- **Man pages:** embedded in the binary, read with `unpin man e2fsprogs <program>`, e.g. `unpin man e2fsprogs resize2fs`. One page per program the binary actually runs, plus the `mke2fs.conf`/`e2fsck.conf` and `ext2`/`ext3`/`ext4` format pages; upstream's pages for tools this binary does not ship are dropped rather than embedded.
+- **Platforms:** Linux, macOS, Windows. macOS and Windows have no kernel ext driver, so the programs work on image files but not live block devices.
+- **Windows:** built via [Cosmopolitan](https://github.com/jart/cosmopolitan), not mingw. Only `.tar`/`.tar.gz` archives work there; bz2/xz/zstd archives are Linux/macOS-only. With no `/etc/mtab`, programs print a harmless "Can't check if filesystem is mounted" warning.
+- **Man pages:** embedded in the binary, read with `unpin man e2fsprogs <program>`, e.g. `unpin man e2fsprogs resize2fs`. One page per program the binary actually runs, plus the `mke2fs.conf`/`e2fsck.conf` and `ext2`/`ext3`/`ext4` format pages; upstream's pages for programs this binary does not ship are dropped rather than embedded.
 - **Translations:** upstream compiles the build prefix in as `LOCALEDIR`, which would point at a `/nix/store` path that exists on no user's machine. The lookup is repointed at `/usr/share/locale` — upstream's own fallback — so the messages come out translated wherever the distro's e2fsprogs `.mo` files are installed.
 - **Tests:** no native suite runs. Upstream `make check` first relinks the standalone per-tool binaries, which fails in this single-binary build (verified); it also needs writable block devices CI can't provide.
