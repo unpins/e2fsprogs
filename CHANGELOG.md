@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `e2mmpstatus` reports a filesystem's MMP status. It was wired to
+  `tune2fs`, so it printed `tune2fs`'s usage instead; it runs `dumpe2fs` now,
+  as upstream installs it.
+
 ## [1.47.4-1] - 2026-09-26
 
 ### Added

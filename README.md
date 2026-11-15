@@ -35,7 +35,7 @@ unpin install e2fsprogs
 
 | programs | Linux | macOS | Windows |
 | :--- | :---: | :---: | :---: |
-| `mke2fs` (`mkfs.ext2/3/4`), `e2fsck` (`fsck.ext2/3/4`), `tune2fs` (`e2label`, `e2mmpstatus`, `findfs`), `dumpe2fs` | ✓ | ✓ | ✓ |
+| `mke2fs` (`mkfs.ext2/3/4`), `e2fsck` (`fsck.ext2/3/4`), `tune2fs` (`e2label`, `findfs`), `dumpe2fs` (`e2mmpstatus`) | ✓ | ✓ | ✓ |
 | `resize2fs`, `debugfs`, `badblocks`, `e2image`, `e2undo`, `e2freefrag`, `filefrag`, `logsave`, `mklost+found`, `chattr`, `lsattr`, `e4crypt`, `e4defrag` | ✓ | — | — |
 
 The second row is the part of upstream that needs Linux ioctls or has no

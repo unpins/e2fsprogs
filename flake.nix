@@ -27,8 +27,8 @@
       # CONFIG_BUILD_FINDFS — see `build`.
       corePrograms = [
         { name = "mke2fs"; aliases = [ "mkfs.ext2" "mkfs.ext3" "mkfs.ext4" ]; }
-        { name = "tune2fs"; aliases = [ "e2label" "e2mmpstatus" "findfs" ]; }
-        { name = "dumpe2fs"; }
+        { name = "tune2fs"; aliases = [ "e2label" "findfs" ]; }
+        { name = "dumpe2fs"; aliases = [ "e2mmpstatus" ]; }
         { name = "e2fsck"; aliases = [ "fsck.ext2" "fsck.ext3" "fsck.ext4" ]; }
       ];
       # Linux folds every program upstream installs, not just the four above.

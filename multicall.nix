@@ -77,8 +77,8 @@ let
   };
 
   # Every name the binary answers to, from the table the flake declares. The
-  # many-to-one rows are the point: mke2fs/tune2fs/e2fsck each re-check argv[0]
-  # internally (tune2fs recognises e2label/e2mmpstatus/findfs), so an alias
+  # many-to-one rows are the point: the tools re-check argv[0] internally
+  # (tune2fs recognises e2label/findfs, dumpe2fs e2mmpstatus), so an alias
   # routes straight to its tool's main and the tool decides the variant.
   appletAliases = winTable.announced;
 
