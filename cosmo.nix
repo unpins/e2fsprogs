@@ -31,6 +31,10 @@
 #  4. **`sbrk`** — cosmocc has none; only the optional "memory used"
 #     diagnostic calls sbrk(0). `-include` a compat header with a no-op stub.
 #
+#  5. **`scandir`** — cosmo's returns garbage dirents and its readdir()
+#     leaves d_reclen at 0, so `mke2fs -d <directory>` gets a readdir-based
+#     scandir that copies whole dirents.
+#
 # Feature trims via .override:
 #   - libuuid = null:  use the in-tree libuuid/libblkid (non-Linux branch).
 #   - gettext = null + --disable-nls:  gettext-cosmo hits a gnulib
@@ -60,75 +64,8 @@ let
       "--without-bz2lib" "--without-lzma" "--without-lzo2"
       "--without-zstd" "--without-openssl" "--without-libb2"
     ];
-    postPatch = (o.postPatch or "") + ''
-      awk 'NR==1{print "#ifndef RPP_ECHO_OFF\n#define RPP_ECHO_OFF 0\n#endif\nstatic char *readpassphrase(const char *p, char *b, unsigned long n, int f){ (void)p;(void)f; if(n)b[0]=0; return b; }"} {print}' \
-        libarchive_fe/passphrase.c > t && mv t libarchive_fe/passphrase.c
-    '';
+    patches = (o.patches or [ ]) ++ [ ./patches/cosmo-libarchive-readpassphrase.patch ];
   });
-
-  # fix 4 compat header, materialized to the source root in postPatch and
-  # force-included into every TU via preBuild's NIX_CFLAGS_COMPILE.
-  cosmoCompatH = nat.writeText "e2fs-cosmo-compat.h" ''
-    #ifndef E2FS_COSMO_COMPAT_H
-    #define E2FS_COSMO_COMPAT_H
-    #include <stdint.h>
-    static inline void *sbrk(intptr_t n){ (void)n; return (void*)0; }
-    #endif
-  '';
-
-  # fix 5: a working scandir() for `mke2fs -d <directory>` on cosmo. cosmo's
-  # system scandir() returns garbage dirents, and its readdir() leaves
-  # d_reclen = 0 (the basename in d_name IS correct, though). Upstream's
-  # _WIN32 fallback scandir copies d_reclen bytes, so it's equally unusable
-  # here. This local version is built on the working readdir() and copies the
-  # whole fixed-size `struct dirent` (cosmo's d_name is a 256-byte buffer)
-  # instead of trusting d_reclen. Routed into create_inode.c's call site via
-  # `#define scandir/alphasort` after <dirent.h> is already included, so the
-  # system declarations aren't redefined — only our calls are rerouted. The
-  # `.tar`/`.tar.gz` populate path (__populate_fs_from_tar, libarchive) never
-  # uses scandir and already works.
-  cosmoScandir = nat.writeText "e2fs-cosmo-scandir.inc" ''
-    #ifdef __COSMOPOLITAN__
-    static int e2fs_alphasort(const struct dirent **a, const struct dirent **b) {
-            return strcoll((*a)->d_name, (*b)->d_name);
-    }
-    static int e2fs_scandir(const char *dir_name, struct dirent ***name_list,
-                            int (*filter)(const struct dirent *),
-                            int (*compar)(const struct dirent **,
-                                          const struct dirent **)) {
-            DIR *dir;
-            struct dirent *dent, **list = NULL;
-            size_t cap = 0, n = 0;
-            dir = opendir(dir_name);
-            if (!dir) return -1;
-            while ((dent = readdir(dir))) {
-                    if (filter && !(*filter)(dent)) continue;
-                    if (n == cap) {
-                            size_t ncap = cap + 32;
-                            struct dirent **nl = realloc(list, ncap * sizeof(*nl));
-                            if (!nl) goto err;
-                            cap = ncap; list = nl;
-                    }
-                    list[n] = malloc(sizeof(struct dirent));
-                    if (!list[n]) goto err;
-                    memcpy(list[n], dent, sizeof(struct dirent));
-                    n++;
-            }
-            closedir(dir);
-            if (compar) qsort(list, n, sizeof(*list),
-                              (int (*)(const void *, const void *))compar);
-            *name_list = list;
-            return (int)n;
-    err:
-            closedir(dir);
-            while (n) free(list[--n]);
-            free(list);
-            return -1;
-    }
-    #define scandir e2fs_scandir
-    #define alphasort e2fs_alphasort
-    #endif
-  '';
 
   basePkg = (cosmoPkgs.e2fsprogs.override {
     libuuid = null;
@@ -146,7 +83,8 @@ let
     # pulling the objects that need crc32/inflate, so the probe passes and the
     # final link is the one that fails. `SYSLIBS` (where a seeded `LIBS` would
     # land) comes BEFORE `LIBARCHIVE` on those link lines, so the only place
-    # that works is `LIBARCHIVE` itself.
+    # that works is `LIBARCHIVE` itself. Not a patch: MCONFIG is written by
+    # configure, and the guards fail the build if the line it edits is missing.
     buildInputs = (oa.buildInputs or [ ]) ++ [ cosmoPkgs.zlib ];
     postConfigure = (oa.postConfigure or "") + ''
       grep -q '^LIBARCHIVE = .*-larchive' MCONFIG
@@ -154,40 +92,16 @@ let
       grep -q '^LIBARCHIVE = .*-lz' MCONFIG
     '';
 
-
-    postPatch = (oa.postPatch or "") + ''
-      # Same as the native build: ROOT_SYSCONFDIR points at /etc, not at our own
-      # store prefix. See flake.nix for the reasoning.
-      substituteInPlace lib/dirpaths.h.in \
-        --replace-fail '"@root_sysconfdir@"' '"/etc"'
-
-      # fix 2: et_c.awk `struct et_list link` vs cosmocc POSIX link()
-      sed -i \
-        -e 's/struct et_list link = /struct et_list et_link = /' \
-        -e 's/if (!link\.table)/if (!et_link.table)/' \
-        -e 's/et = &link;/et = \&et_link;/' \
-        lib/et/et_c.awk
-
-      # fix 3: parse-types.sh probe <asm/types.h> → <linux/types.h>
-      sed -i 's|#include <asm/types.h>|#include <linux/types.h>|' config/parse-types.sh
-
-      # fix 1: O_EXCL on a regular file → EINVAL under cosmo's NT open().
-      # Neutralize it in this one TU only (O_EXCL is only meaningful for
-      # block devices, which Windows images aren't).
-      awk '/#include <fcntl.h>/ && !done {print; print "#ifdef __COSMOPOLITAN__"; print "#undef O_EXCL"; print "#define O_EXCL 0"; print "#endif"; done=1; next} {print}' \
-        lib/ext2fs/unix_io.c > t && mv t lib/ext2fs/unix_io.c
-
-      # fix 4: no-op sbrk() stub (cosmocc lacks it; only the optional
-      # "memory used" diagnostic references sbrk(0)).
-      cp ${cosmoCompatH} cosmo-compat.h
-
-      # fix 5: splice the cosmo scandir() before __populate_fs's call site
-      # (anchor on its leading comment; uniquely present once).
-      awk 'FNR==NR{ins=ins $0 ORS; next}
-           /Copy files from source_dir to fs in alphabetical order/ && !done{printf "%s", ins; done=1}
-           {print}' \
-        ${cosmoScandir} misc/create_inode.c > t && mv t misc/create_inode.c
-    '';
+    # sysconfdir as on the native build, then the cosmo portability fixes
+    # listed at the top; each patch carries its reason.
+    patches = (oa.patches or [ ]) ++ map (n: ./patches/${n}.patch) [
+      "sysconfdir-etc"
+      "cosmo-et-link"
+      "cosmo-parse-types"
+      "cosmo-unix-io-no-excl"
+      "cosmo-compat-sbrk"
+      "cosmo-scandir"
+    ];
 
     preBuild = (oa.preBuild or "") + ''
       export NIX_CFLAGS_COMPILE="''${NIX_CFLAGS_COMPILE:-} -include $PWD/cosmo-compat.h"

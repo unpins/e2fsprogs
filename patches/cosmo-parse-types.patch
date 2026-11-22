@@ -1,0 +1,16 @@
+Probe <linux/types.h> for __u64.
+
+cosmocc has no <asm/types.h>; the fallback unsigned long long clashes with
+the unsigned long that cosmocc's <linux/types.h> uses.
+
+--- a/config/parse-types.sh
++++ b/config/parse-types.sh
+@@ -19,7 +19,7 @@
+ /bin/echo -n "checking for __uNN types... "
+ # can't check [ -f /usr/include/asm/types.h ] directly, since
+ # the include path might be different if cross-compiling
+-if echo '#include <asm/types.h>' | $CPP - 2> parse-types.log | \
++if echo '#include <linux/types.h>' | $CPP - 2> parse-types.log | \
+ 	sed -f sed.script | grep '^#' > asm_types.h; then
+ 	echo "using <asm/types.h>"
+ else

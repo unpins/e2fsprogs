@@ -1,0 +1,16 @@
+Read mke2fs.conf and e2fsck.conf from /etc.
+
+configure substitutes ROOT_SYSCONFDIR with the install prefix, a store
+path that exists on no user's machine, so mke2fs fell back to its
+compiled-in defaults instead of the distribution's filesystem profiles.
+The template is patched, not the make variable: the value is baked at
+configure time, and the install itself stays in the prefix.
+
+--- a/lib/dirpaths.h.in
++++ b/lib/dirpaths.h.in
+@@ -7,4 +7,4 @@
+ #define LOCALEDIR		"@datadir@/locale"
+ 
+ /* Where to find the mke2fs.conf and e2fsck.conf files */
+-#define ROOT_SYSCONFDIR		"@root_sysconfdir@"
++#define ROOT_SYSCONFDIR		"/etc"

@@ -1,0 +1,13 @@
+Add a no-op sbrk() for Cosmopolitan.
+
+cosmocc has none, and only the optional "memory used" diagnostic calls
+sbrk(0). The header is force-included by the cosmo build.
+
+--- a/cosmo-compat.h
++++ b/cosmo-compat.h
+@@ -0,0 +1,5 @@
++#ifndef E2FS_COSMO_COMPAT_H
++#define E2FS_COSMO_COMPAT_H
++#include <stdint.h>
++static inline void *sbrk(intptr_t n){ (void)n; return (void*)0; }
++#endif

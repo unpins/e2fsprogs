@@ -1,0 +1,14 @@
+Stub readpassphrase() for Cosmopolitan.
+
+cosmocc has no BSD readpassphrase, and mke2fs -d never prompts for one.
+
+--- a/libarchive_fe/passphrase.c
++++ b/libarchive_fe/passphrase.c
+@@ -1,3 +1,7 @@
++#ifndef RPP_ECHO_OFF
++#define RPP_ECHO_OFF 0
++#endif
++static char *readpassphrase(const char *p, char *b, unsigned long n, int f){ (void)p;(void)f; if(n)b[0]=0; return b; }
+ /*-
+  * Copyright (c) 2014 Michihiro NAKAJIMA
+  * All rights reserved.

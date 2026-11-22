@@ -1,0 +1,21 @@
+Drop O_EXCL from the image open under Cosmopolitan.
+
+mke2fs sets EXT2_FLAG_EXCLUSIVE unconditionally, so unix_open() adds O_EXCL
+to the image open. On a regular file without O_CREAT that is a no-op on
+Linux, but cosmo's NT open() rejects it with EINVAL ("...while setting up
+superblock"). O_EXCL only matters for block devices, which a Windows image
+is not; this file only, since O_CREAT|O_EXCL is relied on elsewhere.
+
+--- a/lib/ext2fs/unix_io.c
++++ b/lib/ext2fs/unix_io.c
+@@ -39,6 +39,10 @@
+ #include <errno.h>
+ #endif
+ #include <fcntl.h>
++#ifdef __COSMOPOLITAN__
++#undef O_EXCL
++#define O_EXCL 0
++#endif
+ #include <time.h>
+ #ifdef __linux__
+ #include <sys/utsname.h>

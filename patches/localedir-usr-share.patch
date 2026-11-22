@@ -1,0 +1,17 @@
+Look up translations in /usr/share/locale.
+
+@datadir@/locale is the install prefix, where only the build host has
+anything. /usr/share/locale is upstream's own fallback (the #ifndef
+LOCALEDIR in e2fsck.h) and where distributions keep the .mo files.
+
+--- a/lib/dirpaths.h.in
++++ b/lib/dirpaths.h.in
+@@ -4,7 +4,7 @@
+  */
+ 
+ /* Where to put the messages file for internationalization support */
+-#define LOCALEDIR		"@datadir@/locale"
++#define LOCALEDIR		"/usr/share/locale"
+ 
+ /* Where to find the mke2fs.conf and e2fsck.conf files */
+ #define ROOT_SYSCONFDIR		"/etc"

@@ -1,0 +1,17 @@
+Register only the tar reader for mke2fs -d.
+
+format_all pulls the zip/7z/mtree readers and, through them, the crypto
+layer the shared libarchive carries on Linux (mbedtls). The filter layer
+stays, so compressed tarballs of every kind still work.
+
+--- a/misc/create_inode_libarchive.c
++++ b/misc/create_inode_libarchive.c
+@@ -209,7 +209,7 @@
+ 	dl_archive_read_next_header = archive_read_next_header;
+ 	dl_archive_read_open_filename = archive_read_open_filename;
+ 	dl_archive_read_support_filter_all = archive_read_support_filter_all;
+-	dl_archive_read_support_format_all = archive_read_support_format_all;
++	dl_archive_read_support_format_all = archive_read_support_format_tar;
+ 
+ 	return 1;
+ }

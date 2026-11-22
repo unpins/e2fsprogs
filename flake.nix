@@ -174,33 +174,14 @@
             // lib.optionalAttrs isDarwin {
             NIX_LDFLAGS = ((old.env or { }).NIX_LDFLAGS or "") + " -liconv";
           };
-          postPatch = (old.postPatch or "") + ''
-            # mke2fs and e2fsck read $ROOT_SYSCONFDIR/{mke2fs,e2fsck}.conf, and
-            # configure substitutes that constant with our own store prefix
-            # (lib/dirpaths.h.in) -- the ONLY place the shipped binary looks,
-            # and it exists nowhere on a user's machine, so mke2fs silently
-            # falls back to its compiled-in defaults instead of the distro's
-            # filesystem profiles. /etc is where every distro keeps them.
-            # Substituting the TEMPLATE (not the make variable) leaves the
-            # install itself in $out: ROOT_SYSCONFDIR is baked at configure
-            # time, so a make-time override never reaches the binary.
-            substituteInPlace lib/dirpaths.h.in \
-              --replace-fail '"@root_sysconfdir@"' '"/etc"'
-
-            # Same story for the translations: `@datadir@/locale` is our own
-            # store prefix, so `bindtextdomain` looks where only the build host
-            # has anything. `/usr/share/locale` is upstream's own fallback (see
-            # the `#ifndef LOCALEDIR` in e2fsck.h) and where every distro keeps
-            # the `.mo` files. The install stays in $out -- this is the header
-            # template, not the make variable.
-            substituteInPlace lib/dirpaths.h.in \
-              --replace-fail '"@datadir@/locale"' '"/usr/share/locale"'
-
-            substituteInPlace misc/create_inode_libarchive.c \
-              --replace-fail \
-                'dl_archive_read_support_format_all = archive_read_support_format_all;' \
-                'dl_archive_read_support_format_all = archive_read_support_format_tar;'
-          '';
+          # /etc for mke2fs.conf/e2fsck.conf, /usr/share/locale for the
+          # translations, and only the tar reader for `mke2fs -d` (see above);
+          # each patch carries its reason.
+          patches = (old.patches or [ ]) ++ [
+            ./patches/sysconfdir-etc.patch
+            ./patches/localedir-usr-share.patch
+            ./patches/mke2fs-d-tar-only.patch
+          ];
           # `SMANPAGES` takes findfs.8 from `$(FINDFS_MAN)`, empty under
           # `--disable-libblkid` — so the page the macro above makes reachable
           # still isn't installed. The `.8` rule itself is unconditional (a
