@@ -7,6 +7,17 @@
 - `e2mmpstatus` reports a filesystem's MMP status. It was wired to
   `tune2fs`, so it printed `tune2fs`'s usage instead; it runs `dumpe2fs` now,
   as upstream installs it.
+- Windows: `tune2fs` refused every image with "Can't check if filesystem is
+  mounted due to missing mtab file".
+
+### Added
+
+- Linux: `fuse2fs`, to mount an image through FUSE.
+- macOS: `resize2fs`, `debugfs`, `badblocks`, `e2image`, `e2undo`,
+  `e2freefrag`, `logsave`, `mklost+found`, `chattr`, `lsattr`, `blkid`,
+  `uuidgen`, `uuidd` and `fsck`.
+- Windows: `resize2fs`, `debugfs`, `badblocks`, `e2image`, `e2undo`,
+  `e2freefrag`, `logsave` and `mklost+found`.
 
 ## [1.47.4-1] - 2026-09-26
 

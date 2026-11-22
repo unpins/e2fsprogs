@@ -30,34 +30,39 @@
         { name = "dumpe2fs"; aliases = [ "e2mmpstatus" ]; }
         { name = "e2fsck"; aliases = [ "fsck.ext2" "fsck.ext3" "fsck.ext4" ]; }
       ];
-      # Linux folds every program upstream installs, not just the four above.
-      # They were left out when this package was a hand-rolled X+Z fold (each
-      # extra tool cost a rename pass); the engine self-fold has no such cost —
-      # the capture sidecar already records a link for each one — and the man
-      # set embedded next to them documents all of them, so a binary with only
-      # four was shipping pages for programs it did not have.
-      programs = corePrograms ++ map (n: { name = n; }) [
+      # The programs upstream builds on every Unix, on top of the four.
+      portableImagePrograms = map (n: { name = n; }) [
         "badblocks"
-        "chattr"
         "debugfs"
         "e2freefrag"
         "e2image"
         "e2undo"
-        "e4crypt"
-        "e4defrag"
-        "filefrag"
         "logsave"
-        "lsattr"
         "mklost+found"
         "resize2fs"
       ];
+      portablePrograms = portableImagePrograms
+        ++ map (n: { name = n; }) [ "chattr" "lsattr" ];
+      # Linux: what nixpkgs installs. e4crypt/e4defrag are Linux-only in
+      # misc/Makefile, filefrag's main only runs on Linux, and fuse2fs is
+      # nixpkgs' separate `fuse2fs` output.
+      programs = corePrograms ++ portablePrograms
+        ++ map (n: { name = n; }) [ "e4crypt" "e4defrag" "filefrag" "fuse2fs" ];
+      # macOS: what nixpkgs installs there, minus filefrag (it only prints
+      # "only supported on Linux"). Off Linux upstream builds its own libblkid
+      # and libuuid, and with them blkid, uuidgen, uuidd and the fsck wrapper.
+      darwinPrograms = corePrograms ++ portablePrograms
+        ++ map (n: { name = n; }) [ "blkid" "fsck" "uuidd" "uuidgen" ];
       # Every name the dispatcher answers to on a given target, aliases folded
       # in: what the embedded man set has to cover, and nothing more.
       announcedOf = ps: builtins.concatMap (p: [ p.name ] ++ (p.aliases or [ ])) ps;
       # The cosmo fold dispatches the core set, so it reads the SAME list:
       # ./multicall.nix renders applets.list and the dispatcher from the table,
       # `withAliases` announces it, and `multicall.windowsTable` hands it to CI.
-      winTable = unpins-lib.lib.multicallTableOf { name = "e2fsprogs"; programs = corePrograms; };
+      # Windows (cosmo): the tools that work on an image file. chattr/lsattr,
+      # filefrag, e4crypt/e4defrag and fuse2fs need a mounted ext filesystem.
+      windowsPrograms = corePrograms ++ portableImagePrograms;
+      winTable = unpins-lib.lib.multicallTableOf { name = "e2fsprogs"; programs = windowsPrograms; };
     in
     unpins-lib.lib.mkStandaloneFlake {
       inherit self;
@@ -95,9 +100,7 @@
         # sees the -framework the static build got from libintl's link flags,
         # so name it here.
         requires.frameworks = [ "CoreFoundation" ];
-        # darwin has no ext driver and no Linux ioctls: it keeps the four
-        # image-level tools.
-        darwinPrograms = corePrograms;
+        inherit darwinPrograms;
         windowsTable = winTable;
       };
 
@@ -192,7 +195,7 @@
             # plus the config/format pages those programs read.
             __unpin_keep="mke2fs.conf e2fsck.conf ext2 ext3 ext4 ${
               builtins.concatStringsSep " "
-                (announcedOf (if isDarwin then corePrograms else programs))
+                (announcedOf (if isDarwin then darwinPrograms else programs))
             }"
             find "''${man:-$out}/share/man" \( -type f -o -type l \) -print | while read -r __unpin_f; do
               __unpin_s=''${__unpin_f##*/}

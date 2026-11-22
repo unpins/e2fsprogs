@@ -66,7 +66,26 @@ let
       "e2fsck/sigcatcher.o" "e2fsck/readahead.o" "e2fsck/extents.o"
       "e2fsck/encrypted_files.o"
     ];
+    badblocks = [ "misc/badblocks.o" ];
+    logsave = [ "misc/logsave.o" ];
+    "mklost+found" = [ "misc/mklost+found.o" ];
+    e2freefrag = [ "misc/e2freefrag.o" ];
+    e2image = [ "misc/e2image.o" ];
+    e2undo = [ "misc/e2undo.o" ];
+    resize2fs = [
+      "resize/extent.o" "resize/resize2fs.o" "resize/main.o" "resize/online.o"
+      "resize/resource_track.o" "resize/sim_progress.o"
+    ];
+    debugfs = map (o: "debugfs/${o}.o") [
+      "debug_cmds" "debugfs" "util" "ncheck" "icheck" "ls" "lsdel" "dump"
+      "set_fields" "logdump" "htree" "unused" "e2freefrag" "filefrag"
+      "extent_cmds" "extent_inode" "zap" "create_inode"
+      "create_inode_libarchive" "quota" "xattrs" "journal" "revoke"
+      "recovery" "do_journal" "do_orphan"
+    ];
   };
+  # C identifiers for the rename headers (`mklost+found` is not one).
+  cId = builtins.replaceStrings [ "+" ] [ "_" ];
 
   # Every name the binary answers to, from the table the flake declares. The
   # many-to-one rows are the point: the tools re-check argv[0] internally
@@ -99,7 +118,7 @@ let
         $(MULTI_OUT): $(top_builddir)/multicall/dispatcher.o $(MULTI_TOOL_OBJS) $(DEPLIBS) $(LIBE2P) $(DEPLIBBLKID) $(DEPLIBUUID) $(LIBEXT2FS) $(LIBSUPPORT)
         	$(CC) $(ALL_LDFLAGS) -o $@ \
         		$(top_builddir)/multicall/dispatcher.o $(MULTI_TOOL_OBJS) \
-        		$(LIBSUPPORT) $(LIBS) $(LIBBLKID) $(LIBUUID) \
+        		$(LIBSUPPORT) $(LIBS) $(LIBSS) $(LIBBLKID) $(LIBUUID) \
         		$(LIBEXT2FS) $(LIBE2P) $(LIBINTL) \
         		$(SYSLIBS) $(LIBMAGIC) $(LIBARCHIVE)
       '';
@@ -132,16 +151,16 @@ ${winTable.emit { }}
             (tool: objs: ''
               {
                 echo "/* multicall rename header: ${tool} */"
-                echo "#define main ${tool}_main"
+                echo "#define main ${cId tool}_main"
                 # Emit `#define <sym> <tool>__<sym>` for every defined global.
                 $NM --defined-only -g ${lib.concatStringsSep " " objs} 2>/dev/null \
-                  | awk -v t="${tool}" '
+                  | awk -v t="${cId tool}" '
                       $2 ~ /^[TBDRWVCS]$/ {
                         sym = $3
                         if (sym ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && sym != "main" && !seen[sym]++)
                           print "#define " sym " " t "__" sym
                       }'
-              } > multicall/${tool}.rename.h
+              } > "multicall/${tool}.rename.h"
             '')
             multicallObjs)}
 
@@ -154,18 +173,18 @@ ${winTable.emit { }}
           ${lib.concatStringsSep "\n          " (lib.mapAttrsToList
             (tool: objs: ''
               rm -f ${lib.concatStringsSep " " objs}
-              declare -A _e2fs_subdirs_${tool}=()
+              declare -A _e2fs_subdirs_${cId tool}=()
               for obj in ${lib.concatStringsSep " " objs}; do
                 subdir=$(dirname "$obj")
                 base=$(basename "$obj")
-                _e2fs_subdirs_${tool}[$subdir]+=" $base"
+                _e2fs_subdirs_${cId tool}[$subdir]+=" $base"
               done
-              for subdir in "''${!_e2fs_subdirs_${tool}[@]}"; do
+              for subdir in "''${!_e2fs_subdirs_${cId tool}[@]}"; do
                 NIX_CFLAGS_COMPILE="$_orig_NIX_CFLAGS_COMPILE -include $PWD/multicall/${tool}.rename.h" \
-                  make -C "$subdir" -j''${NIX_BUILD_CORES:-1} ''${_e2fs_subdirs_${tool}[$subdir]}
+                  make -C "$subdir" -j''${NIX_BUILD_CORES:-1} ''${_e2fs_subdirs_${cId tool}[$subdir]}
               done
-              unset _e2fs_subdirs_${tool}
-              mkdir -p multicall/${tool}
+              unset _e2fs_subdirs_${cId tool}
+              mkdir -p "multicall/${tool}"
               for obj in ${lib.concatStringsSep " " objs}; do
                 flat=$(echo "$obj" | tr '/' '_')
                 cp "$obj" "multicall/${tool}/$flat"
@@ -189,8 +208,11 @@ ${winTable.emit { }}
           # Upstream `make install` is skipped, so build just the `<name>.8`
           # targets (the .8.in → .8 substitution, no relink; roff is
           # platform-agnostic).
-          make -C misc   mke2fs.8 tune2fs.8 dumpe2fs.8 e2label.8 e2mmpstatus.8 findfs.8
+          make -C misc   mke2fs.8 tune2fs.8 dumpe2fs.8 e2label.8 e2mmpstatus.8 findfs.8 \
+                         badblocks.8 logsave.8 mklost+found.8 e2freefrag.8 e2image.8 e2undo.8
           make -C e2fsck e2fsck.8
+          make -C resize resize2fs.8
+          make -C debugfs debugfs.8
         '';
 
         # Skip upstream's `make install`: after X+Z's per-tool recompile
@@ -214,7 +236,9 @@ ${winTable.emit { }}
           mkdir -p "$out/share/man/man8"
           install -m644 misc/mke2fs.8 misc/tune2fs.8 misc/dumpe2fs.8 \
                         misc/e2label.8 misc/e2mmpstatus.8 misc/findfs.8 \
-                        e2fsck/e2fsck.8 \
+                        misc/badblocks.8 misc/logsave.8 misc/mklost+found.8 \
+                        misc/e2freefrag.8 misc/e2image.8 misc/e2undo.8 \
+                        e2fsck/e2fsck.8 resize/resize2fs.8 debugfs/debugfs.8 \
                         "$out/share/man/man8/"
           for a in mkfs.ext2 mkfs.ext3 mkfs.ext4; do
             printf '.so man8/mke2fs.8\n' > "$out/share/man/man8/$a.8"

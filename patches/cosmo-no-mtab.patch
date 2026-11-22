@@ -1,0 +1,20 @@
+Treat a missing mtab as nothing mounted under Cosmopolitan.
+
+Windows has no /etc/mtab and mounts no ext filesystem, so tune2fs,
+resize2fs and e2image refused every image with "Can't check if
+filesystem is mounted due to missing mtab file". Same effect as
+upstream's EXT2FS_NO_MTAB_OK.
+
+--- a/lib/ext2fs/ismounted.c
++++ b/lib/ext2fs/ismounted.c
+@@ -108,6 +108,10 @@
+ 
+ 	if ((f = setmntent (mtab_file, "r")) == NULL) {
+ 		if (errno == ENOENT) {
++#ifdef __COSMOPOLITAN__
++			/* Windows mounts no ext filesystem. */
++			return 0;
++#endif
+ 			if (ext2fs_safe_getenv("EXT2FS_NO_MTAB_OK"))
+ 				return 0;
+ 			else

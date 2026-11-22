@@ -8,7 +8,7 @@
 # the Windows VM: `mke2fs -F img`, `dumpe2fs`, and `e2fsck -fn` round-trip a
 # valid ext2 filesystem (not just `--version`).
 #
-# Five portability fixes vs. the Linux/macOS build:
+# Six portability fixes vs. the Linux/macOS build:
 #
 #  1. **O_EXCL on a regular file** — mke2fs sets EXT2_FLAG_EXCLUSIVE
 #     unconditionally, so `unix_open()` ORs O_EXCL into the image-fd open
@@ -34,6 +34,9 @@
 #  5. **`scandir`** — cosmo's returns garbage dirents and its readdir()
 #     leaves d_reclen at 0, so `mke2fs -d <directory>` gets a readdir-based
 #     scandir that copies whole dirents.
+#
+#  6. **No mtab** — Windows has none and mounts no ext filesystem; without
+#     this tune2fs, resize2fs and e2image refuse every image.
 #
 # Feature trims via .override:
 #   - libuuid = null:  use the in-tree libuuid/libblkid (non-Linux branch).
@@ -101,6 +104,7 @@ let
       "cosmo-unix-io-no-excl"
       "cosmo-compat-sbrk"
       "cosmo-scandir"
+      "cosmo-no-mtab"
     ];
 
     preBuild = (oa.preBuild or "") + ''
