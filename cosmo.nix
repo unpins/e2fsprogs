@@ -113,5 +113,4 @@ in
   aliasPkgs = cosmoPkgs;
   hostTools = nat;
   basePkg = basePkg;
-  isCosmo = true;
 }

@@ -1,12 +1,9 @@
 # Upstream e2fsprogs is multi-binary — mke2fs/tune2fs/dumpe2fs/e2fsck are
-# four separate executables (each plus its own argv[0]-aliased symlinks:
-# mkfs.ext2/3/4, e2label, fsck.ext2/3/4...). To honour the unpins one-pkg-
-# one-bin rule we post-link them into a single multicall ELF / Mach-O / APE.
-#
-# This file exposes a shared `mkMulticall` used by two callers:
-#   - flake.nix `build`        → native pkgsStatic (Linux ELF, macOS Mach-O)
-#   - cosmo.nix `windowsBuild`  → Cosmopolitan cross (Windows APE via apelink)
-# Keeping one recipe avoids the X+Z phase logic drifting between targets.
+# separate executables (with names like mkfs.ext2/3/4, e2label, fsck.ext2/3/4
+# that each tool recognises in argv[0]). The Windows build (cosmo.nix) folds
+# them into one APE with the X+Z recipe below. Linux and macOS fold through
+# the unpin-llvm engine instead (flake.nix), where the objects are bitcode
+# and this recipe's nm/rename pass does not apply.
 #
 # Why a post-link route (no source patch): every tool keeps its own
 # `int main()` and several share helpers under the same global names but
@@ -33,14 +30,9 @@
 #      differently per target (Linux `-L<util-linux> -lblkid`; Darwin/cosmo
 #      in-tree `$(LIB)/libblkid.a`), so letting make expand them keeps every
 #      per-target detail intact.
-#   D. Strip all upstream-installed binaries, ship one multicall at
-#      $out/bin/e2fsprogs (+ applet symlinks on ELF/Mach-O). `lib.withAliases`
-#      embeds the applet names as an UNPIN_META block; `lib.withMan` (on by
-#      default) folds the man pages into the binary.
-#
-# Measured win (x86_64 musl-static, stripped, with full libarchive):
-# 4 separate bins ~13 MB total → 1 multicall ~8.3 MB. 13 applet names
-# embedded.
+#   D. Skip upstream's install and ship the one multicall at
+#      $out/bin/e2fsprogs. `lib.withAliases` embeds the applet names (an
+#      `unpin/aliases` member); `lib.withMan` folds the man pages in.
 { lib, winTable }:
 let
   multicallObjs = {
@@ -82,33 +74,18 @@ let
   # routes straight to its tool's main and the tool decides the variant.
   appletAliases = winTable.announced;
 
-  # Build the multicall from a base e2fsprogs derivation.
-  #   aliasPkgs      pkgs passed to lib.withAliases / lib.withMan
-  #   hostTools      native pkgs providing build-time writeText
-  #                  (native: pkgs; cosmo: cosmoPkgs.buildPackages)
-  #   basePkg        the e2fsprogs derivation to post-process
-  #   isTargetDarwin Mach-O nm leading-underscore + section-data ('S') handling
-  #   isCosmo        Windows APE target: no applet symlinks (no symlinks on
-  #                  Windows; the apelink hook renames the binary to .exe), and
-  #                  withAliases gets an explicit name list instead.
+  # Build the multicall from the cosmo e2fsprogs derivation.
+  #   aliasPkgs  pkgs passed to lib.withAliases / lib.withMan
+  #   hostTools  native pkgs providing build-time writeText
+  #   basePkg    the e2fsprogs derivation to post-process
+  # No applet symlinks (Windows has none; the apelink hook renames the binary
+  # to .exe), so withAliases gets the name list.
   mkMulticall =
     { aliasPkgs
     , hostTools
     , basePkg
-    , isTargetDarwin ? false
-    , isCosmo ? false
     }:
     let
-      # Darwin's ld64 doesn't accept --start-group/--end-group and its
-      # clang+compiler-rt has no libgcc.a; cosmocc targets x86_64 (no i686
-      # thunks) and also ships no libgcc. The --start-group + libgcc trick
-      # only matters for i686's `__x86.get_pc_thunk.*` PIC helpers, so blank
-      # both the group directives and -lgcc on Darwin and cosmo.
-      noGroup = isTargetDarwin || isCosmo;
-      multicallGroupOpen = if noGroup then "" else "-Wl,--start-group";
-      multicallGroupClose = if noGroup then "" else "-Wl,--end-group";
-      multicallLibgcc = if noGroup then "" else "-lgcc";
-
       # Custom Makefile fragment that reuses upstream's misc/Makefile
       # variables to do the final link. Written via writeText so neither Nix
       # interpolation nor bash heredoc indentation/escaping mangles the recipe
@@ -122,12 +99,9 @@ let
         $(MULTI_OUT): $(top_builddir)/multicall/dispatcher.o $(MULTI_TOOL_OBJS) $(DEPLIBS) $(LIBE2P) $(DEPLIBBLKID) $(DEPLIBUUID) $(LIBEXT2FS) $(LIBSUPPORT)
         	$(CC) $(ALL_LDFLAGS) -o $@ \
         		$(top_builddir)/multicall/dispatcher.o $(MULTI_TOOL_OBJS) \
-        		$(MULTI_GROUP_OPEN) \
         		$(LIBSUPPORT) $(LIBS) $(LIBBLKID) $(LIBUUID) \
         		$(LIBEXT2FS) $(LIBE2P) $(LIBINTL) \
-        		$(SYSLIBS) $(LIBMAGIC) $(LIBARCHIVE) \
-        		$(MULTI_LIBGCC) \
-        		$(MULTI_GROUP_CLOSE)
+        		$(SYSLIBS) $(LIBMAGIC) $(LIBARCHIVE)
       '';
 
       multicall = basePkg.overrideAttrs (old: {
@@ -160,16 +134,10 @@ ${winTable.emit { }}
                 echo "/* multicall rename header: ${tool} */"
                 echo "#define main ${tool}_main"
                 # Emit `#define <sym> <tool>__<sym>` for every defined global.
-                # Two Mach-O portability points (no-ops on ELF/cosmo):
-                #   - ld64 mangles C symbols with a leading `_`; strip one on
-                #     Darwin so the macro key matches the source token.
-                #   - Darwin nm tags section data (rodata/cstring) `S`; include
-                #     it so data globals get renamed too, not just `T`.
                 $NM --defined-only -g ${lib.concatStringsSep " " objs} 2>/dev/null \
-                  | awk -v t="${tool}" -v strip=${if isTargetDarwin then "1" else "0"} '
+                  | awk -v t="${tool}" '
                       $2 ~ /^[TBDRWVCS]$/ {
                         sym = $3
-                        if (strip && sym ~ /^_/) sym = substr(sym, 2)
                         if (sym ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && sym != "main" && !seen[sym]++)
                           print "#define " sym " " t "__" sym
                       }'
@@ -215,9 +183,6 @@ ${winTable.emit { }}
 
           make -C misc -f Makefile -f unpin-multicall.mk \
             MULTI_TOOL_OBJS="$(awk 'BEGIN{ORS=" "} { print "$(top_builddir)/" $0 }' multicall/all_objs.list)" \
-            MULTI_GROUP_OPEN="${multicallGroupOpen}" \
-            MULTI_GROUP_CLOSE="${multicallGroupClose}" \
-            MULTI_LIBGCC="${multicallLibgcc}" \
             multicall-link
 
           # Generate the section-8 man pages for the applets we ship.
@@ -231,16 +196,11 @@ ${winTable.emit { }}
         # Skip upstream's `make install`: after X+Z's per-tool recompile
         # (renamed `main` → `<tool>_main`), automake's install rule would
         # relink each standalone binary and fail to resolve `main`. We only
-        # need the multicall + applet symlinks (ELF/Mach-O) / man.
+        # need the multicall and the man pages.
         installPhase = ''
           runHook preInstall
           mkdir -p "$out/bin"
           install -m755 multicall/e2fsprogs "$out/bin/e2fsprogs"
-        '' + lib.optionalString (!isCosmo) ''
-          for n in ${lib.concatStringsSep " " appletAliases}; do
-            ln -s e2fsprogs "$out/bin/$n"
-          done
-        '' + ''
 
           # Install man for the shipped applets so `lib.withMan` (embedMan, on
           # by default) can fold them into the binary. Real pages for the
@@ -268,22 +228,10 @@ ${winTable.emit { }}
       });
     in
     lib.withAliases aliasPkgs
-      ({
-        primary = if isCosmo then "e2fsprogs.exe" else "e2fsprogs";
-      } // (if isCosmo
-        then { aliases = appletAliases; }
-        else { aliasesFromSymlinksIn = "bin"; }))
+      { primary = "e2fsprogs.exe"; aliases = appletAliases; }
       multicall;
 
 in
 {
-  inherit mkMulticall appletAliases multicallObjs;
-
-  # Native (Linux ELF / macOS Mach-O) entry used by flake.nix `build`.
-  native = pkgs: mkMulticall {
-    aliasPkgs = pkgs;
-    hostTools = pkgs;
-    basePkg = pkgs.pkgsStatic.e2fsprogs;
-    isTargetDarwin = pkgs.pkgsStatic.stdenv.hostPlatform.isDarwin;
-  };
+  inherit mkMulticall;
 }
